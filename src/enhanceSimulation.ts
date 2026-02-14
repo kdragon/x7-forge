@@ -31,15 +31,15 @@ export const simulateEnhanceCost = (
 
   // 각 단계별 기댓값 계산 (Average Case)
   successRates.forEach((rate) => {
-    const failRatePercent = (1 - rate / 100) * 100;
-    
+    const failRatePercent = 100 - rate;
+
     // 1회 시도 시 필요한 보호제 개수 (올림 처리)
     // 예: 40% 실패, 1.0%당 1개 -> 40 / 1.0 = 40개 소모
     // 예: 40% 실패, 0.5%당 1개 -> 40 / 0.5 = 80개 소모
     const itemsPerTry = Math.ceil(failRatePercent / costUnit);
-    
+
     // 성공하기 위해 필요한 평균 시도 횟수 (기하분포 기댓값: 1/p)
-    const averageTries = 1 / (rate / 100);
+    const averageTries = 100 / rate;
     
     // 해당 단계 총 소모량
     const stepTotal = itemsPerTry * averageTries;
