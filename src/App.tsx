@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { simulateAllTiers } from './enhanceSimulation';
 
 // 1. 아이템 타입 정의 (기획서 기반 필드 확장)
 interface Item {
@@ -14,6 +15,8 @@ interface Item {
   stackCount?: number; // 스택 가능 아이템 개수 (철광석 등)
   isStackable?: boolean; // 스택 가능 여부
   exp?: number;        // 현재 보유 경험치
+  inlandTradeValue?: number; // 내륙 무역 코인 값
+  seaTradeValue?: number;    // 해상 무역 코인 값
 }
 
 export default function App() {
@@ -21,13 +24,22 @@ export default function App() {
   const [log, setLog] = useState<string[]>([]);
   const [selectedItem, setSelectedItem] = useState<Item | null>(null);
   const [isUpgradeMode, setIsUpgradeMode] = useState(false);
+  const [isEnhanceMode, setIsEnhanceMode] = useState(false);
+  const [isTradeMode, setIsTradeMode] = useState<'inland' | 'sea' | null>(null);
   const [selectedMaterials, setSelectedMaterials] = useState<Item[]>([]);
+  
+  // 무역 코인
+  const [inlandTradeCoins, setInlandTradeCoins] = useState(0);
+  const [seaTradeCoins, setSeaTradeCoins] = useState(0);
   const [draggedItem, setDraggedItem] = useState<Item | null>(null);
   const [deleteConfirmItem, setDeleteConfirmItem] = useState<Item | null>(null);
 
   // 드랍/제작 확률 설정
-  const [dropRates, setDropRates] = useState({ high: 5.0, rare: 1.0, hero: 0.1 }); // 고급, 희귀, 영웅 확률 (%)
-  const [craftRates, setCraftRates] = useState({ high: 5.0, rare: 1.0, hero: 0.1 }); // 고급, 희귀, 영웅 확률 (%)
+  const [dropRates, setDropRates] = useState({ high: 5.0, rare: 1.0, hero: 0.1, sr: 5.0 }); // 고급, 희귀, 영웅, SR 확률 (%)
+  const [craftRates, setCraftRates] = useState({ high: 5.0, rare: 1.0, hero: 0.1, sr: 5.0 }); // 고급, 희귀, 영웅, SR 확률 (%)
+  
+  // 강화 확률 설정 (각 강화 단계별 성공 확률)
+  const [enhanceRates, setEnhanceRates] = useState([100, 90, 80, 70, 51, 35, 25, 15, 8]); // +1~+9강 성공 확률 (%)
 
   const addLog = (msg: string) => setLog(prev => [msg, ...prev].slice(0, 10));
 
@@ -189,7 +201,8 @@ export default function App() {
     // 티어별 최대 등급을 고려하여 등급 결정
     const maxGrade = getMaxGradeForTier(tier);
     const grade = determineGrade(dropRates.rare, dropRates.high, dropRates.hero, maxGrade);
-    const attackSpeed = tier === 1 ? 10 : Math.floor(Math.random() * 6) + 10; // 2T는 10~15
+    const attackSpeed = tier === 1 ? 10 : tier === 2 ? Math.floor(Math.random() * 6) + 10 : Math.floor(Math.random() * 6) + 15; // 1T: 10, 2T: 10~15, 3T: 15~20
+    const isSR = tier >= 3 && Math.random() < (dropRates.sr / 100); // 3T 이후부터 SR 확률 적용
 
     const newItem: Item = {
       id: Date.now() + Math.random(),
@@ -198,12 +211,12 @@ export default function App() {
       grade,
       attack: calculateAttack(tier, grade, 0),
       attackSpeed,
-      skill: 'R',
+      skill: isSR ? 'SR' : 'R',
       slots: 0,
       enhance: 0
     };
     setInventory(prev => [...prev, newItem]);
-    addLog(`[드랍] ${tier}T ${grade} 획득`);
+    addLog(`[드랍] ${tier}T ${grade}${isSR ? ' SR' : ''} 획득`);
   };
 
   // --- 2. 제작 로직 (티어별 상이한 공식 적용) ---
@@ -221,6 +234,7 @@ export default function App() {
       if (!consumeOre(1, 10)) return;
 
       const grade = determineGrade(craftRates.rare, craftRates.high, craftRates.hero, getMaxGradeForTier(1));
+      const isSR = Math.random() < (craftRates.sr / 100); // SR 확률 적용
       const newItem: Item = {
         id: Date.now(),
         name: '1T 제작템',
@@ -228,11 +242,13 @@ export default function App() {
         grade,
         attack: calculateAttack(1, grade, 0),
         attackSpeed: 10,
-        skill: 'R',
+        skill: isSR ? 'SR' : 'R',
         slots: 0,
         enhance: 0
       };
       setInventory(prev => [...prev, newItem]);
+      addLog(`[제작] 1T ${grade}${isSR ? ' SR' : ''} 획득`);
+      return;
     }
     else if (tier === 2) {
       const t1Normal = inventory.find(i => i.tier === 1 && i.name.includes('제작') && !i.isStackable);
@@ -244,6 +260,7 @@ export default function App() {
       if (!consumeOre(2, 10)) return;
 
       const grade = determineGrade(craftRates.rare, craftRates.high, craftRates.hero, getMaxGradeForTier(2));
+      const isSR = Math.random() < (craftRates.sr / 100); // SR 확률 적용
       setInventory(prev => {
         const remaining = [...prev];
         remaining.splice(prev.indexOf(t1Normal), 1);
@@ -255,22 +272,25 @@ export default function App() {
           grade,
           attack: calculateAttack(2, grade, 0),
           attackSpeed: Math.floor(Math.random() * 6) + 10,
-          skill: 'R',
+          skill: isSR ? 'SR' : 'R',
           slots: 0,
           enhance: 0
         }];
       });
+      addLog(`[제작] 2T ${grade}${isSR ? ' SR' : ''} 획득`);
+      return;
     }
     else if (tier === 3) {
       const t2DropHigh = inventory.find(i => i.tier === 2 && i.grade === '고급' && i.name.includes('드랍') && !i.isStackable);
       const t2CraftHigh = inventory.find(i => i.tier === 2 && i.grade === '고급' && i.name.includes('제작') && !i.isStackable);
-      if (!t2DropHigh || !t2CraftHigh) {
-        alert("재료 부족! (2T 드랍 고급1 + 2T 제작 고급1)");
+      if (!t2DropHigh || !t2CraftHigh || getOreCount(3) < 10) {
+        alert("재료 부족! (2T 드랍 고급1 + 2T 제작 고급1 + 3T 철광석 10)");
         return;
       }
+      if (!consumeOre(3, 10)) return;
 
       const grade = determineGrade(craftRates.rare, craftRates.high, craftRates.hero, getMaxGradeForTier(3));
-      const isSR = Math.random() < 0.05; // 5% 확률 R' (SR)
+      const isSR = Math.random() < (craftRates.sr / 100); // SR 확률 적용
       setInventory(prev => {
         const remaining = [...prev];
         remaining.splice(prev.indexOf(t2DropHigh), 1);
@@ -284,17 +304,22 @@ export default function App() {
           attackSpeed: Math.floor(Math.random() * 6) + 15,
           skill: isSR ? 'SR' : 'R',
           slots: 0,
-          enhance: 0
+          enhance: 0,
+          inlandTradeValue: 1  // 내륙 무역 코인 1개
         }];
       });
+      addLog(`[제작] 3T ${grade}${isSR ? ' SR' : ''} 획득`);
+      return;
     }
     addLog(`${tier}T 제작 성공`);
   };
 
-  // --- 3. 아이템 클릭 핸들러 (승급/강화 UX 프레임) ---
+  // --- 3. 아이템 클릭 핸들러 (승급/강화/무역 UX 프레임) ---
   const handleItemClick = (item: Item) => {
     setSelectedItem(item);
     setIsUpgradeMode(false);
+    setIsEnhanceMode(false);
+    setIsTradeMode(null);
     setSelectedMaterials([]);
     addLog(`[정보] ${item.name} 선택`);
   };
@@ -302,7 +327,104 @@ export default function App() {
   // --- 4. 승급 모드 시작 ---
   const startUpgradeMode = () => {
     setIsUpgradeMode(true);
+    setIsEnhanceMode(false);
+    setIsTradeMode(null);
     setSelectedMaterials([]);
+  };
+
+  // --- 4-2. 강화 모드 시작 ---
+  const startEnhanceMode = () => {
+    setIsEnhanceMode(true);
+    setIsUpgradeMode(false);
+    setIsTradeMode(null);
+    setSelectedMaterials([]);
+  };
+
+  // --- 4-3. 무역 모드 시작 ---
+  const startTradeMode = (tradeType: 'inland' | 'sea') => {
+    setIsTradeMode(tradeType);
+    setIsUpgradeMode(false);
+    setIsEnhanceMode(false);
+    setSelectedItem(null);
+  };
+
+  // --- 4-4. 무역 실행 ---
+  const handleTrade = (item: Item) => {
+    if (!isTradeMode) return;
+    
+    const tradeValue = isTradeMode === 'inland' ? item.inlandTradeValue : item.seaTradeValue;
+    
+    if (!tradeValue || tradeValue === 0) {
+      alert('이 아이템은 무역할 수 없습니다!');
+      return;
+    }
+
+    // 아이템 제거 및 코인 추가
+    setInventory(prev => prev.filter(i => i.id !== item.id));
+    
+    if (isTradeMode === 'inland') {
+      setInlandTradeCoins(prev => prev + tradeValue);
+      addLog(`[내륙무역] ${item.name} → 내륙무역코인 +${tradeValue}`);
+    } else {
+      setSeaTradeCoins(prev => prev + tradeValue);
+      addLog(`[해상무역] ${item.name} → 해상무역코인 +${tradeValue}`);
+    }
+  };
+
+  // --- 4-5. 강화 실행 ---
+  const handleEnhance = (useProtection: boolean) => {
+    if (!selectedItem || selectedItem.isStackable) return;
+    
+    const currentEnhance = selectedItem.enhance;
+    if (currentEnhance >= 9) {
+      alert('최대 강화 단계입니다! (+9강)');
+      return;
+    }
+
+    // 강화 주문서는 무제한으로 가정 (재료 아이템 불필요)
+    const successRate = enhanceRates[currentEnhance];
+    const isSuccess = Math.random() * 100 < successRate;
+
+    // 강화 실행
+    setInventory(prev => {
+      let updated = [...prev];
+      
+      if (isSuccess) {
+        // 성공
+        updated = updated.map(item => 
+          item.id === selectedItem.id
+            ? {
+                ...item,
+                enhance: item.enhance + 1,
+                attack: calculateAttack(item.tier, item.grade, item.enhance + 1)
+              }
+            : item
+        );
+        addLog(`[강화 성공] ${selectedItem.name} +${currentEnhance + 1}강 달성!`);
+      } else {
+        if (useProtection) {
+          // 보호제 사용 - 실패해도 아이템 유지
+          addLog(`[강화 실패] ${selectedItem.name} +${currentEnhance}강 유지 (보호제 사용)`);
+        } else {
+          // 보호제 미사용 - 아이템 파괴
+          updated = updated.filter(item => item.id !== selectedItem.id);
+          addLog(`[강화 실패] ${selectedItem.name} +${currentEnhance}강 파괴됨!`);
+          setSelectedItem(null);
+          setIsEnhanceMode(false);
+        }
+      }
+      
+      return updated;
+    });
+
+    // 성공 시 선택 아이템 업데이트
+    if (isSuccess && selectedItem) {
+      setSelectedItem(prev => prev ? {
+        ...prev,
+        enhance: prev.enhance + 1,
+        attack: calculateAttack(prev.tier, prev.grade, prev.enhance + 1)
+      } : null);
+    }
   };
 
   // --- 5. 재료 선택 토글 ---
@@ -530,6 +652,22 @@ export default function App() {
                 />
                 <span style={{fontSize: '0.85rem', marginLeft: '3px'}}>%</span>
               </div>
+              <div>
+                <label style={{fontSize: '0.85rem', marginRight: '5px'}}>SR:</label>
+                <input
+                  type="number"
+                  value={dropRates.sr}
+                  onChange={(e) => setDropRates({...dropRates, sr: Math.max(0, Math.min(100, parseFloat(e.target.value) || 0))})}
+                  step="0.01"
+                  min="0"
+                  max="100"
+                  style={inputStyle}
+                />
+                <span style={{fontSize: '0.85rem', marginLeft: '3px'}}>%</span>
+              </div>
+            </div>
+            <div style={{marginTop: '10px', padding: '10px', backgroundColor: '#2a2a2a', borderRadius: '4px', fontSize: '0.85rem', color: '#ff6b00', fontWeight: 'bold'}}>
+              🌟 특별궁극기(SR) 확률: {dropRates.sr.toFixed(2)}% (3T 이후부터)
             </div>
           </div>
 
@@ -576,6 +714,61 @@ export default function App() {
                 />
                 <span style={{fontSize: '0.85rem', marginLeft: '3px'}}>%</span>
               </div>
+              <div>
+                <label style={{fontSize: '0.85rem', marginRight: '5px'}}>SR:</label>
+                <input
+                  type="number"
+                  value={craftRates.sr}
+                  onChange={(e) => setCraftRates({...craftRates, sr: Math.max(0, Math.min(100, parseFloat(e.target.value) || 0))})}
+                  step="0.01"
+                  min="0"
+                  max="100"
+                  style={inputStyle}
+                />
+                <span style={{fontSize: '0.85rem', marginLeft: '3px'}}>%</span>
+              </div>
+            </div>
+            <div style={{marginTop: '10px', padding: '10px', backgroundColor: '#2a2a2a', borderRadius: '4px', fontSize: '0.85rem', color: '#ff6b00', fontWeight: 'bold'}}>
+              🌟 특별궁극기(SR) 확률: {craftRates.sr.toFixed(2)}%
+            </div>
+          </div>
+
+          {/* 강화 확률 */}
+          <div>
+            <h4 style={{margin: '0 0 10px 0', color: '#9575cd'}}>⚔️ 강화 확률</h4>
+            <div style={{display: 'flex', gap: '8px', flexWrap: 'wrap'}}>
+              {enhanceRates.map((rate, index) => (
+                <div key={index} style={{display: 'flex', alignItems: 'center'}}>
+                  <label style={{fontSize: '0.85rem', marginRight: '5px'}}>+{index + 1}강:</label>
+                  <input
+                    type="number"
+                    value={rate}
+                    onChange={(e) => {
+                      const newRates = [...enhanceRates];
+                      newRates[index] = Math.max(0, Math.min(100, parseFloat(e.target.value) || 0));
+                      setEnhanceRates(newRates);
+                    }}
+                    step="0.01"
+                    min="0"
+                    max="100"
+                    style={{...inputStyle, width: '60px'}}
+                  />
+                  <span style={{fontSize: '0.85rem', marginLeft: '3px'}}>%</span>
+                </div>
+              ))}
+            </div>
+            <div style={{marginTop: '10px', padding: '10px', backgroundColor: '#2a2a2a', borderRadius: '4px'}}>
+              <div style={{fontSize: '0.85rem', color: '#9575cd', fontWeight: 'bold', marginBottom: '8px'}}>
+                📊 +9강 달성 통계 (평균 소모 아이템: {Math.floor(1 / enhanceRates.reduce((acc, rate) => acc * (rate / 100), 1)).toLocaleString()}개)
+              </div>
+              <div style={{fontSize: '0.85rem', color: '#ffeb3b', fontWeight: 'bold', marginTop: '8px', marginBottom: '5px'}}>
+                +9강 필요 강화 보호제 갯수
+              </div>
+              {simulateAllTiers(enhanceRates).map(result => (
+                <div key={result.tier} style={{fontSize: '0.75rem', color: '#ccc', marginBottom: '3px'}}>
+                  {result.tier}티어 (실패확률 {result.tier === 3 ? '1%' : result.tier === 4 ? '0.5%' : result.tier === 5 ? '0.25%' : result.tier === 6 ? '0.125%' : '0.06%'} 당 1개 기준): {result.totalProtectionItems.toLocaleString()}개 ({(result.totalCostKrw / 10000).toFixed(1)}만원)
+                </div>
+              ))}
             </div>
           </div>
         </div>
@@ -612,6 +805,7 @@ export default function App() {
           <h4>📦 드랍 파밍</h4>
           <button onClick={() => handleDrop(1)} style={btnStyle}>1T 드랍템 획득</button>
           <button onClick={() => handleDrop(2)} style={btnStyle}>2T 드랍템 획득</button>
+          <button onClick={() => handleDrop(3)} style={btnStyle}>3T 드랍템 획득</button>
         </div>
         <div style={columnStyle}>
           <h4>⛏️ 자원 채집</h4>
@@ -625,10 +819,15 @@ export default function App() {
           <button onClick={() => handleCraft(2)} style={craftBtn}>2T 제작 (1T제1+1T드1+2T철10)</button>
           <button onClick={() => handleCraft(3)} style={craftBtn}>3T 제작 (2T드고1+2T제고1)</button>
         </div>
+        <div style={columnStyle}>
+          <h4>💎 무역</h4>
+          <button onClick={() => startTradeMode('inland')} style={{...btnStyle, backgroundColor: '#ff6b00'}}>내륙 무역하기</button>
+          <button onClick={() => startTradeMode('sea')} style={{...btnStyle, backgroundColor: '#1e88e5'}}>해상 무역하기</button>
+        </div>
       </div>
 
       <div style={statusBarStyle}>
-        <span>1T 철: {getOreCount(1)} | 2T 철: {getOreCount(2)} | 3T 철: {getOreCount(3)}</span>
+        <span>내륙무역코인: {inlandTradeCoins} | 해상무역코인: {seaTradeCoins} | 1T 철: {getOreCount(1)} | 2T 철: {getOreCount(2)} | 3T 철: {getOreCount(3)}</span>
         <span style={{ color: '#00fbff' }}>아이템: {inventory.length} / 300</span>
       </div>
 
@@ -663,7 +862,12 @@ export default function App() {
                   border: selectedItem?.id === item.id ? '2px solid #ffd700' : '1px solid #555'
                 }}
               >
-                <div style={{fontSize: '0.85rem', fontWeight: 'bold'}}>{item.name}</div>
+                <div style={{fontSize: '0.85rem', fontWeight: 'bold', position: 'relative', paddingRight: '20px'}}>
+                  {item.name}
+                  {item.skill === 'SR' && !item.isStackable && (
+                    <span style={{position: 'absolute', right: '-5px', top: '-8px', fontSize: '1.2rem', fontWeight: 'bold', color: '#ffeb3b', textShadow: '0 0 4px #ff6b00'}}>⭐</span>
+                  )}
+                </div>
                 {item.isStackable ? (
                   <>
                     <div style={{...infoText, fontSize: '1.2rem', fontWeight: 'bold', color: '#ffd700', marginTop: '10px'}}>
@@ -674,7 +878,7 @@ export default function App() {
                   <>
                     <div style={infoText}>공 : {item.attack}</div>
                     <div style={infoText}>공속 : +{item.attackSpeed}</div>
-                    <div style={infoText}>스킬 : {item.skill}</div>
+                    <div style={{...infoText, color: item.skill === 'SR' ? '#ff6b00' : '#64b5f6', fontWeight: item.skill === 'SR' ? 'bold' : 'normal'}}>스킬 : {item.skill}</div>
                     <div style={infoText}>세공슬롯 : {item.slots}개</div>
                     <div style={{...infoText, color: '#ffd700'}}>({item.grade})</div>
                   </>
@@ -824,10 +1028,15 @@ export default function App() {
 
             {/* 선택된 아이템 정보 */}
             <div style={{...itemCard, backgroundColor: selectedItem.grade === '고급' ? '#1b5e20' : selectedItem.grade === '희귀' ? '#0d47a1' : '#333', marginBottom: '15px'}}>
-              <div style={{fontSize: '0.95rem', fontWeight: 'bold', marginBottom: '8px'}}>{selectedItem.name}</div>
+              <div style={{fontSize: '0.95rem', fontWeight: 'bold', marginBottom: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+                {selectedItem.name}
+                {selectedItem.skill === 'SR' && !selectedItem.isStackable && (
+                  <span style={{fontSize: '1.3rem', color: '#ffeb3b', textShadow: '0 0 4px #ff6b00'}}>⭐</span>
+                )}
+              </div>
               <div style={infoText}>공격력: {selectedItem.attack}</div>
               <div style={infoText}>공속: +{selectedItem.attackSpeed}</div>
-              <div style={infoText}>스킬: {selectedItem.skill}</div>
+              <div style={{...infoText, color: selectedItem.skill === 'SR' ? '#ff6b00' : '#64b5f6', fontWeight: selectedItem.skill === 'SR' ? 'bold' : 'normal'}}>스킬: {selectedItem.skill}</div>
               <div style={infoText}>세공슬롯: {selectedItem.slots}개</div>
               <div style={infoText}>강화: +{selectedItem.enhance}</div>
               <div style={{...infoText, color: '#ffd700', marginTop: '5px'}}>등급: {selectedItem.grade}</div>
@@ -848,11 +1057,80 @@ export default function App() {
               >
                 {selectedItem.grade === getMaxGradeForTier(selectedItem.tier) ? '최대 등급 도달' : '승급 시작'}
               </button>
-              <button style={{...btnStyle, backgroundColor: '#7b1fa2', padding: '12px'}} disabled>
-                강화 (준비중)
+              <button 
+                style={{...btnStyle, backgroundColor: '#7b1fa2', padding: '12px'}} 
+                onClick={startEnhanceMode}
+                disabled={selectedItem.isStackable || selectedItem.enhance >= 9}
+              >
+                {selectedItem.enhance >= 9 ? '최대 강화 도달' : '강화 시작'}
               </button>
               <button style={{...btnStyle, backgroundColor: '#555', padding: '8px'}} onClick={() => setSelectedItem(null)}>
                 닫기
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* 강화 모드 */}
+        {selectedItem && isEnhanceMode && (
+          <div style={upgradePanel}>
+            <h3 style={{marginTop: 0, color: '#9575cd'}}>⚔️ 강화</h3>
+
+            {/* 선택된 아이템 정보 */}
+            <div style={{...itemCard, backgroundColor: selectedItem.grade === '고급' ? '#1b5e20' : selectedItem.grade === '희귀' ? '#0d47a1' : '#333', marginBottom: '15px'}}>
+              <div style={{fontSize: '0.95rem', fontWeight: 'bold', marginBottom: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+                {selectedItem.name}
+                {selectedItem.skill === 'SR' && !selectedItem.isStackable && (
+                  <span style={{fontSize: '1.3rem', color: '#ffeb3b', textShadow: '0 0 4px #ff6b00'}}>⭐</span>
+                )}
+              </div>
+              <div style={infoText}>공격력: {selectedItem.attack}</div>
+              <div style={infoText}>공속: +{selectedItem.attackSpeed}</div>
+              <div style={{...infoText, color: selectedItem.skill === 'SR' ? '#ff6b00' : '#64b5f6', fontWeight: selectedItem.skill === 'SR' ? 'bold' : 'normal'}}>스킬: {selectedItem.skill}</div>
+              <div style={{...infoText, color: '#ff6b00', fontWeight: 'bold', fontSize: '0.9rem', marginTop: '5px'}}>현재 강화: +{selectedItem.enhance}강</div>
+              <div style={{...infoText, color: '#ffd700', marginTop: '5px'}}>등급: {selectedItem.grade}</div>
+            </div>
+
+            {/* 강화 정보 */}
+            <div style={{padding: '15px', backgroundColor: '#2a2a2a', borderRadius: '8px', marginBottom: '15px'}}>
+              <div style={{fontSize: '0.9rem', marginBottom: '10px', color: '#9575cd', fontWeight: 'bold'}}>
+                +{selectedItem.enhance + 1}강 도전
+              </div>
+              <div style={{fontSize: '0.85rem', marginBottom: '8px'}}>
+                • 성공 확률: <span style={{color: '#4caf50', fontWeight: 'bold'}}>{enhanceRates[selectedItem.enhance]?.toFixed(1) || 0}%</span>
+              </div>
+              <div style={{fontSize: '0.85rem', marginBottom: '8px'}}>
+                • 실패 확률: <span style={{color: '#f44336', fontWeight: 'bold'}}>{(100 - (enhanceRates[selectedItem.enhance] || 0)).toFixed(1)}%</span>
+              </div>
+              <div style={{fontSize: '0.85rem', marginBottom: '8px'}}>
+                • 필요 재료: {selectedItem.tier}T {selectedItem.name.includes('드랍') ? '드랍템' : '제작템'} 1개
+              </div>
+              <div style={{fontSize: '0.85rem', color: '#ffeb3b'}}>
+                • 보호제 사용 시: {(() => {
+                  const tierCostRates: Record<number, number> = {3: 1.0, 4: 0.5, 5: 0.25, 6: 0.125, 7: 0.06};
+                  const costUnit = tierCostRates[selectedItem.tier] || 1.0;
+                  const failRate = 100 - (enhanceRates[selectedItem.enhance] || 0);
+                  const protectionCount = Math.ceil(failRate / costUnit);
+                  return `${protectionCount}개 (${(protectionCount * 100 / 10000).toFixed(1)}만원)`;
+                })()}
+              </div>
+            </div>
+
+            <div style={{display: 'flex', flexDirection: 'column', gap: '10px'}}>
+              <button
+                style={{...btnStyle, backgroundColor: '#4caf50', padding: '12px', fontWeight: 'bold'}}
+                onClick={() => handleEnhance(false)}
+              >
+                보호제 없이 강화 (실패 시 파괴)
+              </button>
+              <button
+                style={{...btnStyle, backgroundColor: '#ff9800', padding: '12px', fontWeight: 'bold'}}
+                onClick={() => handleEnhance(true)}
+              >
+                보호제 사용 강화 (실패 시 유지)
+              </button>
+              <button style={{...btnStyle, backgroundColor: '#555', padding: '8px'}} onClick={() => setIsEnhanceMode(false)}>
+                취소
               </button>
             </div>
           </div>
@@ -871,9 +1149,15 @@ export default function App() {
             <h3 style={{ color: '#ff5252', marginTop: 0 }}>⚠️ 아이템 파괴 확인</h3>
             <div style={{ marginBottom: '20px' }}>
               <div style={{ ...itemCard, backgroundColor: deleteConfirmItem.grade === '고급' ? '#1b5e20' : deleteConfirmItem.grade === '희귀' ? '#0d47a1' : '#333', marginBottom: '15px' }}>
-                <div style={{ fontSize: '0.95rem', fontWeight: 'bold' }}>{deleteConfirmItem.name}</div>
+                <div style={{ fontSize: '0.95rem', fontWeight: 'bold', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  {deleteConfirmItem.name}
+                  {deleteConfirmItem.skill === 'SR' && !deleteConfirmItem.isStackable && (
+                    <span style={{fontSize: '1.3rem', color: '#ffeb3b', textShadow: '0 0 4px #ff6b00'}}>⭐</span>
+                  )}
+                </div>
                 <div style={infoText}>공격력: {deleteConfirmItem.attack}</div>
                 <div style={infoText}>공속: +{deleteConfirmItem.attackSpeed}</div>
+                <div style={{...infoText, color: deleteConfirmItem.skill === 'SR' ? '#ff6b00' : '#64b5f6', fontWeight: deleteConfirmItem.skill === 'SR' ? 'bold' : 'normal'}}>스킬: {deleteConfirmItem.skill}</div>
                 <div style={{ ...infoText, color: '#ffd700' }}>등급: {deleteConfirmItem.grade}</div>
               </div>
               <div style={{ fontSize: '1.1rem', textAlign: 'center', marginBottom: '20px' }}>
@@ -1045,6 +1329,90 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* 무역 모달 */}
+      {isTradeMode && (
+        <div style={modalOverlayStyle}>
+          <div style={{...modalContentStyle, minWidth: '600px', border: isTradeMode === 'inland' ? '2px solid #ff6b00' : '2px solid #1e88e5'}}>
+            <h3 style={{ color: isTradeMode === 'inland' ? '#ff6b00' : '#1e88e5', marginTop: 0 }}>
+              {isTradeMode === 'inland' ? '🏜️ 내륙 무역' : '🌊 해상 무역'}
+            </h3>
+
+            <div style={{marginBottom: '20px', padding: '15px', backgroundColor: '#2a2a2a', borderRadius: '8px'}}>
+              <div style={{fontSize: '1rem', fontWeight: 'bold', marginBottom: '10px'}}>
+                무역 가능한 아이템을 클릭하세요
+              </div>
+              <div style={{fontSize: '0.9rem', color: '#aaa'}}>
+                {isTradeMode === 'inland' ? '내륙 무역 코인으로 교환됩니다' : '해상 무역 코인으로 교환됩니다'}
+              </div>
+            </div>
+
+            {/* 무역 가능 아이템 목록 */}
+            <div style={{marginBottom: '20px', maxHeight: '400px', overflowY: 'auto', border: '1px solid #333', borderRadius: '5px', padding: '10px', backgroundColor: '#1a1a1a'}}>
+              {inventory
+                .filter(item => {
+                  if (isTradeMode === 'inland') return (item.inlandTradeValue || 0) > 0;
+                  if (isTradeMode === 'sea') return (item.seaTradeValue || 0) > 0;
+                  return false;
+                })
+                .map(item => (
+                  <div
+                    key={item.id}
+                    onClick={() => handleTrade(item)}
+                    style={{
+                      ...itemCard,
+                      backgroundColor: item.grade === '희귀' ? '#1a237e' : item.grade === '고급' ? '#1b5e20' : '#333',
+                      cursor: 'pointer',
+                      marginBottom: '8px',
+                      padding: '12px',
+                      border: `1px solid ${isTradeMode === 'inland' ? '#ff6b00' : '#1e88e5'}`
+                    }}
+                  >
+                    <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+                      <div>
+                        <div style={{fontSize: '0.9rem', fontWeight: 'bold'}}>
+                          {item.skill === 'SR' && <span style={{color: '#ff6b00'}}>⭐ </span>}
+                          {item.name} {item.enhance > 0 ? `+${item.enhance}` : ''}
+                        </div>
+                        <div style={{fontSize: '0.75rem', color: '#aaa'}}>
+                          등급: {item.grade} | 공격: {item.attack} | 공속: +{item.attackSpeed} | 스킬: {item.skill}
+                        </div>
+                      </div>
+                      <div style={{fontSize: '0.95rem', fontWeight: 'bold', color: isTradeMode === 'inland' ? '#ff6b00' : '#1e88e5'}}>
+                        +{isTradeMode === 'inland' ? item.inlandTradeValue : item.seaTradeValue} 코인
+                      </div>
+                    </div>
+                  </div>
+                ))
+              }
+              {inventory.filter(item => {
+                if (isTradeMode === 'inland') return (item.inlandTradeValue || 0) > 0;
+                if (isTradeMode === 'sea') return (item.seaTradeValue || 0) > 0;
+                return false;
+              }).length === 0 && (
+                <div style={{padding: '30px', textAlign: 'center', color: '#666'}}>
+                  무역 가능한 아이템이 없습니다
+                </div>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', gap: '15px', justifyContent: 'center' }}>
+              <button
+                onClick={() => setIsTradeMode(null)}
+                style={{
+                  ...btnStyle,
+                  backgroundColor: '#555',
+                  padding: '12px 30px',
+                  fontSize: '1rem',
+                  fontWeight: 'bold'
+                }}
+              >
+                닫기
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1053,7 +1421,7 @@ export default function App() {
 const containerStyle: React.CSSProperties = { padding: '20px', backgroundColor: '#121212', color: '#fff', minHeight: '100vh', fontFamily: 'sans-serif', maxWidth: '1800px', margin: '0 auto' };
 const rateConfigStyle: React.CSSProperties = { padding: '20px', backgroundColor: '#1e1e1e', borderRadius: '8px', marginBottom: '20px', border: '1px solid #333' };
 const inputStyle: React.CSSProperties = { width: '80px', padding: '6px 8px', backgroundColor: '#333', color: '#fff', border: '1px solid #555', borderRadius: '4px', fontSize: '0.9rem', textAlign: 'right' };
-const gridControlStyle: React.CSSProperties = { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '15px', marginBottom: '20px' };
+const gridControlStyle: React.CSSProperties = { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '15px', marginBottom: '20px' };
 const columnStyle: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: '8px', padding: '15px', backgroundColor: '#1e1e1e', borderRadius: '8px', border: '1px solid #333' };
 const statusBarStyle: React.CSSProperties = { padding: '10px 20px', backgroundColor: '#252525', borderRadius: '5px', marginBottom: '20px', display: 'flex', justifyContent: 'space-between', border: '1px solid #333' };
 const btnStyle = { padding: '8px', cursor: 'pointer', border: 'none', borderRadius: '4px', backgroundColor: '#444', color: '#fff', fontSize: '0.85rem' };
