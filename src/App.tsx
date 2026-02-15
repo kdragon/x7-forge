@@ -6,7 +6,7 @@ interface Item {
   id: number;
   name: string;
   tier: number;
-  grade: '일반' | '고급' | '희귀' | '영웅' | '전설';
+  grade: '일반' | '고급' | '희귀' | '고대' | '영웅' | '유일' | '유물';
   attack: number;      // 공격력
   attackSpeed: number; // 공속
   skill: 'R' | 'SR';   // 스킬 변조
@@ -17,6 +17,7 @@ interface Item {
   exp?: number;        // 현재 보유 경험치
   inlandTradeValue?: number; // 내륙 무역 코인 값
   seaTradeValue?: number;    // 해상 무역 코인 값
+  usedProtectionCount?: number; // 이 아이템에 사용된 보호제 총 개수
 }
 
 export default function App() {
@@ -35,13 +36,44 @@ export default function App() {
   const [deleteConfirmItem, setDeleteConfirmItem] = useState<Item | null>(null);
 
   // 드랍/제작 확률 설정
-  const [dropRates, setDropRates] = useState({ high: 5.0, rare: 1.0, hero: 0.1, sr: 5.0 }); // 고급, 희귀, 영웅, SR 확률 (%)
-  const [craftRates, setCraftRates] = useState({ high: 5.0, rare: 1.0, hero: 0.1, sr: 5.0 }); // 고급, 희귀, 영웅, SR 확률 (%)
+  const [dropRates, setDropRates] = useState({ high: 5.0, rare: 1.0, hero: 0.1, sr: 5.0 }); // 고급, 희귀, 고대, SR 확률 (%)
+  const [craftRates, setCraftRates] = useState({ high: 5.0, rare: 1.0, hero: 0.1, sr: 5.0 }); // 고급, 희귀, 고대, SR 확률 (%)
   
   // 강화 확률 설정 (각 강화 단계별 성공 확률)
   const [enhanceRates, setEnhanceRates] = useState([100, 90, 80, 70, 51, 35, 25, 15, 8]); // +1~+9강 성공 확률 (%)
 
+  // 강화 보호제 가격 및 사용 통계
+  const [protectionPrice, setProtectionPrice] = useState(100); // 보호제 1개당 가격 (원)
+  const [usedProtectionCount, setUsedProtectionCount] = useState(0); // 사용된 보호제 총 개수
+
+  // 소모된 아이템 통계
+  const [consumedItems, setConsumedItems] = useState({
+    '1T제작': 0,
+    '1T드랍': 0,
+    '2T제작': 0,
+    '2T드랍': 0,
+    '3T제작': 0,
+    '3T드랍': 0,
+    '1T철': 0,
+    '2T철': 0,
+    '3T철': 0
+  });
+
   const addLog = (msg: string) => setLog(prev => [msg, ...prev].slice(0, 10));
+
+  // --- 등급별 배경색 반환 (아키에이지 색상 참고) ---
+  const getGradeColor = (grade: Item['grade']): string => {
+    switch (grade) {
+      case '일반': return '#555';       // 회색
+      case '고급': return '#1b5e20';    // 초록색
+      case '희귀': return '#0d47a1';    // 파란색
+      case '고대': return '#4a148c';    // 보라색
+      case '영웅': return '#e65100';    // 주황색
+      case '유일': return '#f9a825';    // 노란색
+      case '유물': return '#b71c1c';    // 빨간색
+      default: return '#333';
+    }
+  };
 
   // --- 공통 로직: 공격력 계산 (티어 고정값 + 등급 보너스 + 강화 보너스) ---
   const calculateAttack = (tier: number, grade: string, enhance: number) => {
@@ -129,6 +161,12 @@ export default function App() {
       return false;
     }
 
+    // 소모된 철광석 통계 업데이트
+    const oreKey = `${tier}T철` as keyof typeof consumedItems;
+    if (oreKey in consumedItems) {
+      setConsumedItems(prev => ({ ...prev, [oreKey]: prev[oreKey] + amount }));
+    }
+
     setInventory(prev => {
       let remainingToConsume = amount;
       const updated: Item[] = [];
@@ -158,19 +196,29 @@ export default function App() {
   };
 
   // --- 티어별 최대 등급 반환 ---
-  const getMaxGradeForTier = (tier: number): '일반' | '고급' | '희귀' | '영웅' | '전설' => {
+  const getMaxGradeForTier = (tier: number): '일반' | '고급' | '희귀' | '고대' | '영웅' | '유일' | '유물' => {
     if (tier === 1) return '일반';
     if (tier === 2) return '고급';
     if (tier === 3) return '희귀';
-    if (tier === 4) return '영웅';
-    if (tier === 5) return '전설';
+    if (tier === 4) return '고대';
+    if (tier === 5) return '영웅';
+    if (tier === 6) return '유일';
+    if (tier === 7) return '유물';
     return '일반';
   };
 
   // --- 등급 결정 함수 (최대 등급 고려) ---
-  const determineGrade = (rareRate: number, highRate: number, heroRate: number = 0, maxGrade: string = '희귀'): '일반' | '고급' | '희귀' | '영웅' | '전설' => {
+  const determineGrade = (rareRate: number, highRate: number, heroRate: number = 0, maxGrade: string = '희귀', minGrade: string = '일반'): '일반' | '고급' | '희귀' | '고대' | '영웅' | '유일' | '유물' => {
     const roll = Math.random() * 100;
-    
+
+    // 최소 등급이 고급인 경우 (3T 제작)
+    if (minGrade === '고급') {
+      if (maxGrade === '희귀') {
+        if (roll < rareRate) return '희귀';
+        return '고급';
+      }
+    }
+
     // 최대 등급을 고려하여 확률 조정
     if (maxGrade === '희귀') {
       if (roll < rareRate) return '희귀';
@@ -184,9 +232,11 @@ export default function App() {
       if (roll < heroRate + rareRate) return '희귀';
       if (roll < heroRate + rareRate + highRate) return '고급';
       return '일반';
-    } else if (maxGrade === '전설') {
-      // 전설이 최대면 모든 등급 가능
-      return '일반'; // 현재는 지원하지 않음
+    } else if (maxGrade === '고대') {
+      if (roll < heroRate) return '고대';
+      if (roll < heroRate + rareRate) return '희귀';
+      if (roll < heroRate + rareRate + highRate) return '고급';
+      return '일반';
     }
     return '일반';
   };
@@ -200,7 +250,7 @@ export default function App() {
 
     // 티어별 최대 등급을 고려하여 등급 결정
     const maxGrade = getMaxGradeForTier(tier);
-    const grade = determineGrade(dropRates.rare, dropRates.high, dropRates.hero, maxGrade);
+    const grade = determineGrade(dropRates.rare, dropRates.high, dropRates.hero, maxGrade) as Item['grade'];
     const attackSpeed = tier === 1 ? 10 : tier === 2 ? Math.floor(Math.random() * 6) + 10 : Math.floor(Math.random() * 6) + 15; // 1T: 10, 2T: 10~15, 3T: 15~20
     const isSR = tier >= 3 && Math.random() < (dropRates.sr / 100); // 3T 이후부터 SR 확률 적용
 
@@ -233,7 +283,7 @@ export default function App() {
       }
       if (!consumeOre(1, 10)) return;
 
-      const grade = determineGrade(craftRates.rare, craftRates.high, craftRates.hero, getMaxGradeForTier(1));
+      const grade = determineGrade(craftRates.rare, craftRates.high, craftRates.hero, getMaxGradeForTier(1)) as Item['grade'];
       const isSR = Math.random() < (craftRates.sr / 100); // SR 확률 적용
       const newItem: Item = {
         id: Date.now(),
@@ -259,7 +309,10 @@ export default function App() {
       }
       if (!consumeOre(2, 10)) return;
 
-      const grade = determineGrade(craftRates.rare, craftRates.high, craftRates.hero, getMaxGradeForTier(2));
+      // 소모된 재료 통계 업데이트
+      setConsumedItems(prev => ({ ...prev, '1T제작': prev['1T제작'] + 1, '1T드랍': prev['1T드랍'] + 1 }));
+
+      const grade = determineGrade(craftRates.rare, craftRates.high, craftRates.hero, getMaxGradeForTier(2)) as Item['grade'];
       const isSR = Math.random() < (craftRates.sr / 100); // SR 확률 적용
       setInventory(prev => {
         const remaining = [...prev];
@@ -289,7 +342,11 @@ export default function App() {
       }
       if (!consumeOre(3, 10)) return;
 
-      const grade = determineGrade(craftRates.rare, craftRates.high, craftRates.hero, getMaxGradeForTier(3));
+      // 소모된 재료 통계 업데이트
+      setConsumedItems(prev => ({ ...prev, '2T제작': prev['2T제작'] + 1, '2T드랍': prev['2T드랍'] + 1 }));
+
+      // 3T 제작은 고급 재료를 사용하므로 최소 등급이 고급
+      const grade = determineGrade(craftRates.rare, craftRates.high, craftRates.hero, getMaxGradeForTier(3), '고급') as Item['grade'];
       const isSR = Math.random() < (craftRates.sr / 100); // SR 확률 적용
       setInventory(prev => {
         const remaining = [...prev];
@@ -374,7 +431,7 @@ export default function App() {
   // --- 4-5. 강화 실행 ---
   const handleEnhance = (useProtection: boolean) => {
     if (!selectedItem || selectedItem.isStackable) return;
-    
+
     const currentEnhance = selectedItem.enhance;
     if (currentEnhance >= 9) {
       alert('최대 강화 단계입니다! (+9강)');
@@ -385,18 +442,30 @@ export default function App() {
     const successRate = enhanceRates[currentEnhance];
     const isSuccess = Math.random() * 100 < successRate;
 
+    // 보호제 사용 시 사용량 계산 및 누적
+    let protectionCount = 0;
+    if (useProtection) {
+      const tierCostRates: Record<number, number> = {3: 1.0, 4: 0.5, 5: 0.25, 6: 0.125, 7: 0.06};
+      const costUnit = tierCostRates[selectedItem.tier] || 1.0;
+      const failRate = 100 - successRate;
+      protectionCount = Math.ceil(failRate / costUnit);
+
+      setUsedProtectionCount(prev => prev + protectionCount);
+    }
+
     // 강화 실행
     setInventory(prev => {
       let updated = [...prev];
-      
+
       if (isSuccess) {
         // 성공
-        updated = updated.map(item => 
+        updated = updated.map(item =>
           item.id === selectedItem.id
             ? {
                 ...item,
                 enhance: item.enhance + 1,
-                attack: calculateAttack(item.tier, item.grade, item.enhance + 1)
+                attack: calculateAttack(item.tier, item.grade, item.enhance + 1),
+                usedProtectionCount: (item.usedProtectionCount || 0) + protectionCount
               }
             : item
         );
@@ -404,26 +473,50 @@ export default function App() {
       } else {
         if (useProtection) {
           // 보호제 사용 - 실패해도 아이템 유지
+          updated = updated.map(item =>
+            item.id === selectedItem.id
+              ? {
+                  ...item,
+                  usedProtectionCount: (item.usedProtectionCount || 0) + protectionCount
+                }
+              : item
+          );
           addLog(`[강화 실패] ${selectedItem.name} +${currentEnhance}강 유지 (보호제 사용)`);
         } else {
           // 보호제 미사용 - 아이템 파괴
+          // 소모된 아이템 통계 업데이트
+          const itemKey = selectedItem.name.includes('제작') ? `${selectedItem.tier}T제작` as keyof typeof consumedItems : `${selectedItem.tier}T드랍` as keyof typeof consumedItems;
+          if (itemKey in consumedItems) {
+            setConsumedItems(prev => ({ ...prev, [itemKey]: prev[itemKey] + 1 }));
+          }
+
           updated = updated.filter(item => item.id !== selectedItem.id);
           addLog(`[강화 실패] ${selectedItem.name} +${currentEnhance}강 파괴됨!`);
           setSelectedItem(null);
           setIsEnhanceMode(false);
         }
       }
-      
+
       return updated;
     });
 
-    // 성공 시 선택 아이템 업데이트
-    if (isSuccess && selectedItem) {
-      setSelectedItem(prev => prev ? {
-        ...prev,
-        enhance: prev.enhance + 1,
-        attack: calculateAttack(prev.tier, prev.grade, prev.enhance + 1)
-      } : null);
+    // 선택 아이템 업데이트
+    if (selectedItem) {
+      if (isSuccess) {
+        // 성공 시: 강화 수치와 공격력, 보호제 카운트 업데이트
+        setSelectedItem(prev => prev ? {
+          ...prev,
+          enhance: prev.enhance + 1,
+          attack: calculateAttack(prev.tier, prev.grade, prev.enhance + 1),
+          usedProtectionCount: (prev.usedProtectionCount || 0) + protectionCount
+        } : null);
+      } else if (useProtection) {
+        // 실패 + 보호제 사용 시: 보호제 카운트만 업데이트
+        setSelectedItem(prev => prev ? {
+          ...prev,
+          usedProtectionCount: (prev.usedProtectionCount || 0) + protectionCount
+        } : null);
+      }
     }
   };
 
@@ -517,6 +610,14 @@ export default function App() {
 
     const result = calculateUpgradeResult(selectedItem, selectedMaterials);
 
+    // 소모된 재료 아이템 통계 업데이트
+    selectedMaterials.forEach(material => {
+      const itemKey = material.name.includes('제작') ? `${material.tier}T제작` as keyof typeof consumedItems : `${material.tier}T드랍` as keyof typeof consumedItems;
+      if (itemKey in consumedItems) {
+        setConsumedItems(prev => ({ ...prev, [itemKey]: prev[itemKey] + 1 }));
+      }
+    });
+
     setInventory(prev => {
       // 재료 아이템들 제거
       let remaining = prev.filter(item => !selectedMaterials.find(m => m.id === item.id));
@@ -598,6 +699,18 @@ export default function App() {
     if (window.confirm(`전체 아이템 ${inventory.length}개를 삭제하시겠습니까?`)) {
       setInventory([]);
       setSelectedItem(null);
+      setUsedProtectionCount(0); // 보호제 사용 통계도 초기화
+      setConsumedItems({
+        '1T제작': 0,
+        '1T드랍': 0,
+        '2T제작': 0,
+        '2T드랍': 0,
+        '3T제작': 0,
+        '3T드랍': 0,
+        '1T철': 0,
+        '2T철': 0,
+        '3T철': 0
+      }); // 소모 아이템 통계도 초기화
       addLog('[전체삭제] 인벤토리 초기화');
     }
   };
@@ -640,7 +753,7 @@ export default function App() {
                 <span style={{fontSize: '0.85rem', marginLeft: '3px'}}>%</span>
               </div>
               <div>
-                <label style={{fontSize: '0.85rem', marginRight: '5px'}}>영웅:</label>
+                <label style={{fontSize: '0.85rem', marginRight: '5px'}}>고대:</label>
                 <input
                   type="number"
                   value={dropRates.hero}
@@ -702,7 +815,7 @@ export default function App() {
                 <span style={{fontSize: '0.85rem', marginLeft: '3px'}}>%</span>
               </div>
               <div>
-                <label style={{fontSize: '0.85rem', marginRight: '5px'}}>영웅:</label>
+                <label style={{fontSize: '0.85rem', marginRight: '5px'}}>고대:</label>
                 <input
                   type="number"
                   value={craftRates.hero}
@@ -736,7 +849,7 @@ export default function App() {
           {/* 강화 확률 */}
           <div>
             <h4 style={{margin: '0 0 10px 0', color: '#9575cd'}}>⚔️ 강화 확률</h4>
-            <div style={{display: 'flex', gap: '8px', flexWrap: 'wrap'}}>
+            <div style={{display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '15px'}}>
               {enhanceRates.map((rate, index) => (
                 <div key={index} style={{display: 'flex', alignItems: 'center'}}>
                   <label style={{fontSize: '0.85rem', marginRight: '5px'}}>+{index + 1}강:</label>
@@ -756,6 +869,20 @@ export default function App() {
                   <span style={{fontSize: '0.85rem', marginLeft: '3px'}}>%</span>
                 </div>
               ))}
+            </div>
+
+            {/* 보호제 가격 설정 */}
+            <div style={{marginBottom: '10px', padding: '10px', backgroundColor: '#2a2a2a', borderRadius: '4px'}}>
+              <label style={{fontSize: '0.85rem', marginRight: '10px', color: '#ffeb3b', fontWeight: 'bold'}}>🛡️ 강화 보호제 가격:</label>
+              <input
+                type="number"
+                value={protectionPrice}
+                onChange={(e) => setProtectionPrice(Math.max(1, parseFloat(e.target.value) || 100))}
+                step="1"
+                min="1"
+                style={{...inputStyle, width: '100px'}}
+              />
+              <span style={{fontSize: '0.85rem', marginLeft: '5px'}}>원</span>
             </div>
             <div style={{marginTop: '10px', padding: '10px', backgroundColor: '#2a2a2a', borderRadius: '4px'}}>
               <div style={{fontSize: '0.85rem', color: '#9575cd', fontWeight: 'bold', marginBottom: '8px'}}>
@@ -780,23 +907,31 @@ export default function App() {
         <div style={{display: 'flex', justifyContent: 'space-around', gap: '15px', flexWrap: 'wrap'}}>
           <div style={{textAlign: 'center'}}>
             <div style={{fontSize: '1.1rem', fontWeight: 'bold', marginBottom: '5px'}}>1 Tier</div>
-            <div style={{color: '#81c784', fontSize: '0.95rem'}}>일반</div>
+            <div style={{color: '#9e9e9e', fontSize: '0.95rem'}}>일반</div>
           </div>
           <div style={{textAlign: 'center'}}>
             <div style={{fontSize: '1.1rem', fontWeight: 'bold', marginBottom: '5px'}}>2 Tier</div>
-            <div style={{color: '#81c784', fontSize: '0.95rem'}}>고급</div>
+            <div style={{color: '#4caf50', fontSize: '0.95rem'}}>고급</div>
           </div>
           <div style={{textAlign: 'center'}}>
             <div style={{fontSize: '1.1rem', fontWeight: 'bold', marginBottom: '5px'}}>3 Tier</div>
-            <div style={{color: '#81c784', fontSize: '0.95rem'}}>희귀</div>
+            <div style={{color: '#2196f3', fontSize: '0.95rem'}}>희귀</div>
           </div>
           <div style={{textAlign: 'center'}}>
             <div style={{fontSize: '1.1rem', fontWeight: 'bold', marginBottom: '5px'}}>4 Tier</div>
-            <div style={{color: '#81c784', fontSize: '0.95rem'}}>영웅</div>
+            <div style={{color: '#9c27b0', fontSize: '0.95rem'}}>고대</div>
           </div>
           <div style={{textAlign: 'center'}}>
             <div style={{fontSize: '1.1rem', fontWeight: 'bold', marginBottom: '5px'}}>5 Tier</div>
-            <div style={{color: '#81c784', fontSize: '0.95rem'}}>전설</div>
+            <div style={{color: '#ff9800', fontSize: '0.95rem'}}>영웅</div>
+          </div>
+          <div style={{textAlign: 'center'}}>
+            <div style={{fontSize: '1.1rem', fontWeight: 'bold', marginBottom: '5px'}}>6 Tier</div>
+            <div style={{color: '#ffd700', fontSize: '0.95rem'}}>유일</div>
+          </div>
+          <div style={{textAlign: 'center'}}>
+            <div style={{fontSize: '1.1rem', fontWeight: 'bold', marginBottom: '5px'}}>7 Tier</div>
+            <div style={{color: '#f44336', fontSize: '0.95rem'}}>유물</div>
           </div>
         </div>
       </div>
@@ -831,6 +966,27 @@ export default function App() {
         <span style={{ color: '#00fbff' }}>아이템: {inventory.length} / 300</span>
       </div>
 
+      {/* 보호제 및 소모 아이템 통계 */}
+      <div style={{padding: '15px 20px', backgroundColor: '#1a1a1a', borderRadius: '5px', marginBottom: '20px', border: '1px solid #333'}}>
+        <div style={{display: 'flex', gap: '40px', flexWrap: 'wrap'}}>
+          <div>
+            <span style={{color: '#ffeb3b', fontWeight: 'bold', fontSize: '0.9rem'}}>
+              🛡️ 총 사용된 보호제: {usedProtectionCount.toLocaleString()}개 ({(usedProtectionCount * protectionPrice / 10000).toFixed(1)}만원)
+            </span>
+          </div>
+          <div>
+            <span style={{color: '#ff6b6b', fontWeight: 'bold', fontSize: '0.9rem'}}>
+              📦 소모 아이템:
+            </span>
+            <span style={{fontSize: '0.85rem', marginLeft: '10px'}}>
+              1T제작 {consumedItems['1T제작']}개  ·  1T드랍 {consumedItems['1T드랍']}개  ·  1T철 {consumedItems['1T철']}개  |
+              2T제작 {consumedItems['2T제작']}개  ·  2T드랍 {consumedItems['2T드랍']}개  ·  2T철 {consumedItems['2T철']}개  |
+              3T제작 {consumedItems['3T제작']}개  ·  3T드랍 {consumedItems['3T드랍']}개  ·  3T철 {consumedItems['3T철']}개
+            </span>
+          </div>
+        </div>
+      </div>
+
       <div style={{ display: 'flex', gap: '20px' }}>
         <div style={inventoryPanel}>
           <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px'}}>
@@ -857,13 +1013,13 @@ export default function App() {
                 onClick={() => handleItemClick(item)}
                 style={{
                   ...itemCard,
-                  backgroundColor: item.isStackable ? '#424242' : (item.grade === '고급' ? '#1b5e20' : item.grade === '희귀' ? '#0d47a1' : '#333'),
+                  backgroundColor: item.isStackable ? '#424242' : getGradeColor(item.grade),
                   cursor: 'grab',
                   border: selectedItem?.id === item.id ? '2px solid #ffd700' : '1px solid #555'
                 }}
               >
                 <div style={{fontSize: '0.85rem', fontWeight: 'bold', position: 'relative', paddingRight: '20px'}}>
-                  {item.name}
+                  {item.name}{!item.isStackable && item.enhance > 0 && <span style={{color: '#ff6b00'}}> +{item.enhance}</span>}
                   {item.skill === 'SR' && !item.isStackable && (
                     <span style={{position: 'absolute', right: '-5px', top: '-8px', fontSize: '1.2rem', fontWeight: 'bold', color: '#ffeb3b', textShadow: '0 0 4px #ff6b00'}}>⭐</span>
                   )}
@@ -1008,7 +1164,7 @@ export default function App() {
               <div style={{fontSize: '0.9rem', fontWeight: 'bold', marginBottom: '10px', color: '#81c784'}}>🛠️ 제작템 등급 확률</div>
               <div style={{display: 'flex', flexDirection: 'column', gap: '5px', paddingLeft: '10px'}}>
                 <div style={{fontSize: '0.8rem'}}>
-                  • 1T 제작: 일반 {(100 - craftRates.high - craftRates.rare - craftRates.hero).toFixed(1)}% / 고급 {craftRates.high.toFixed(1)}% / 희귀 {craftRates.rare.toFixed(1)}% / 영웅 {craftRates.hero.toFixed(1)}%
+                  • 1T 제작: 일반 {(100 - craftRates.high - craftRates.rare - craftRates.hero).toFixed(1)}% / 고급 {craftRates.high.toFixed(1)}% / 희귀 {craftRates.rare.toFixed(1)}% / 고대 {craftRates.hero.toFixed(1)}%
                 </div>
                 <div style={{fontSize: '0.8rem'}}>
                   • 2T 제작: 일반 {(100 - craftRates.high).toFixed(1)}% / 고급 {craftRates.high.toFixed(1)}% (최대 등급 제한)
@@ -1027,7 +1183,7 @@ export default function App() {
             <h3 style={{marginTop: 0, color: '#ffd700'}}>강화/승급</h3>
 
             {/* 선택된 아이템 정보 */}
-            <div style={{...itemCard, backgroundColor: selectedItem.grade === '고급' ? '#1b5e20' : selectedItem.grade === '희귀' ? '#0d47a1' : '#333', marginBottom: '15px'}}>
+            <div style={{...itemCard, backgroundColor: getGradeColor(selectedItem.grade), marginBottom: '15px'}}>
               <div style={{fontSize: '0.95rem', fontWeight: 'bold', marginBottom: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
                 {selectedItem.name}
                 {selectedItem.skill === 'SR' && !selectedItem.isStackable && (
@@ -1077,7 +1233,7 @@ export default function App() {
             <h3 style={{marginTop: 0, color: '#9575cd'}}>⚔️ 강화</h3>
 
             {/* 선택된 아이템 정보 */}
-            <div style={{...itemCard, backgroundColor: selectedItem.grade === '고급' ? '#1b5e20' : selectedItem.grade === '희귀' ? '#0d47a1' : '#333', marginBottom: '15px'}}>
+            <div style={{...itemCard, backgroundColor: getGradeColor(selectedItem.grade), marginBottom: '15px'}}>
               <div style={{fontSize: '0.95rem', fontWeight: 'bold', marginBottom: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
                 {selectedItem.name}
                 {selectedItem.skill === 'SR' && !selectedItem.isStackable && (
@@ -1106,13 +1262,16 @@ export default function App() {
                 • 필요 재료: {selectedItem.tier}T {selectedItem.name.includes('드랍') ? '드랍템' : '제작템'} 1개
               </div>
               <div style={{fontSize: '0.85rem', color: '#ffeb3b'}}>
-                • 보호제 사용 시: {(() => {
+                • 이번에 보호제 사용 시: {(() => {
                   const tierCostRates: Record<number, number> = {3: 1.0, 4: 0.5, 5: 0.25, 6: 0.125, 7: 0.06};
                   const costUnit = tierCostRates[selectedItem.tier] || 1.0;
                   const failRate = 100 - (enhanceRates[selectedItem.enhance] || 0);
                   const protectionCount = Math.ceil(failRate / costUnit);
-                  return `${protectionCount}개 (${(protectionCount * 100 / 10000).toFixed(1)}만원)`;
+                  return `${protectionCount}개 (${(protectionCount * protectionPrice / 10000).toFixed(1)}만원)`;
                 })()}
+              </div>
+              <div style={{fontSize: '0.85rem', color: '#64dd17', marginTop: '5px'}}>
+                • 이 아이템에 총 사용된 보호제: {(selectedItem.usedProtectionCount || 0).toLocaleString()}개 ({((selectedItem.usedProtectionCount || 0) * protectionPrice / 10000).toFixed(1)}만원)
               </div>
             </div>
 
@@ -1148,7 +1307,7 @@ export default function App() {
           <div style={modalContentStyle}>
             <h3 style={{ color: '#ff5252', marginTop: 0 }}>⚠️ 아이템 파괴 확인</h3>
             <div style={{ marginBottom: '20px' }}>
-              <div style={{ ...itemCard, backgroundColor: deleteConfirmItem.grade === '고급' ? '#1b5e20' : deleteConfirmItem.grade === '희귀' ? '#0d47a1' : '#333', marginBottom: '15px' }}>
+              <div style={{ ...itemCard, backgroundColor: getGradeColor(deleteConfirmItem.grade), marginBottom: '15px' }}>
                 <div style={{ fontSize: '0.95rem', fontWeight: 'bold', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   {deleteConfirmItem.name}
                   {deleteConfirmItem.skill === 'SR' && !deleteConfirmItem.isStackable && (
@@ -1201,7 +1360,7 @@ export default function App() {
             <h3 style={{ color: '#ffd700', marginTop: 0 }}>✨ 아이템 승급</h3>
 
             {/* 선택된 아이템 정보 */}
-            <div style={{...itemCard, backgroundColor: selectedItem.grade === '고급' ? '#1b5e20' : selectedItem.grade === '희귀' ? '#0d47a1' : '#333', marginBottom: '20px'}}>
+            <div style={{...itemCard, backgroundColor: getGradeColor(selectedItem.grade), marginBottom: '20px'}}>
               <div style={{fontSize: '0.95rem', fontWeight: 'bold', marginBottom: '8px'}}>{selectedItem.name}</div>
               <div style={infoText}>공격력: {selectedItem.attack} | 공속: +{selectedItem.attackSpeed} | 스킬: {selectedItem.skill}</div>
               <div style={infoText}>세공슬롯: {selectedItem.slots}개 | 강화: +{selectedItem.enhance}</div>
@@ -1274,11 +1433,13 @@ export default function App() {
                       }}
                       style={{
                         ...itemCard,
-                        backgroundColor: isSelected ? '#1565c0' : (canAdd ? '#333' : '#222'),
+                        backgroundColor: getGradeColor(item.grade),
                         cursor: isSelected || canAdd ? 'pointer' : 'not-allowed',
                         opacity: isSelected || canAdd ? 1 : 0.5,
                         marginBottom: '8px',
-                        padding: '10px'
+                        padding: '10px',
+                        border: isSelected ? '3px solid #64b5f6' : (canAdd ? '2px solid #555' : '2px solid #333'),
+                        boxShadow: isSelected ? '0 0 8px rgba(100, 181, 246, 0.5)' : 'none'
                       }}
                     >
                       <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
@@ -1361,7 +1522,7 @@ export default function App() {
                     onClick={() => handleTrade(item)}
                     style={{
                       ...itemCard,
-                      backgroundColor: item.grade === '희귀' ? '#1a237e' : item.grade === '고급' ? '#1b5e20' : '#333',
+                      backgroundColor: getGradeColor(item.grade),
                       cursor: 'pointer',
                       marginBottom: '8px',
                       padding: '12px',
