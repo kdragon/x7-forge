@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { simulateAllTiers } from './enhanceSimulation';
 
+type EcoMode = 'BM' | 'HARDCORE';
+
 // 1. 아이템 타입 정의 (기획서 기반 필드 확장)
 interface Item {
   id: number;
@@ -15,8 +17,6 @@ interface Item {
   stackCount?: number; // 스택 가능 아이템 개수 (철광석 등)
   isStackable?: boolean; // 스택 가능 여부
   exp?: number;        // 현재 보유 경험치
-  inlandTradeValue?: number; // 내륙 무역 코인 값
-  seaTradeValue?: number;    // 해상 무역 코인 값
   usedProtectionCount?: number; // 이 아이템에 사용된 보호제 총 개수
 }
 
@@ -27,7 +27,6 @@ export default function App() {
   const [isUpgradeMode, setIsUpgradeMode] = useState(false);
   const [isEnhanceMode, setIsEnhanceMode] = useState(false);
   const [isTradeMode, setIsTradeMode] = useState<'inland' | 'sea' | null>(null);
-  const [selectedMaterials, setSelectedMaterials] = useState<Item[]>([]);
   
   // 무역 코인
   const [inlandTradeCoins, setInlandTradeCoins] = useState(0);
@@ -35,8 +34,20 @@ export default function App() {
   const [draggedItem, setDraggedItem] = useState<Item | null>(null);
   const [deleteConfirmItem, setDeleteConfirmItem] = useState<Item | null>(null);
 
+  // 경제 모드 (BM: 보호제 모델, HARDCORE: 파괴/재료 모델)
+  const [ecoMode, setEcoMode] = useState<EcoMode>('BM');
+  const [upgradeMaterials, setUpgradeMaterials] = useState(0); // HARDCORE 모드 재료
+
+  // 숯돌 (분해로 획득)
+  const [upgradeStones, setUpgradeStones] = useState({ low: 0, mid: 0, high: 0 }); // 하급, 중급, 상급
+
+  // 분해 모달
+  const [isDisassembleMode, setIsDisassembleMode] = useState(false);
+  const [disassembleSelection, setDisassembleSelection] = useState<Item[]>([]);
+  const [disassembleResult, setDisassembleResult] = useState<{ items: Item[]; stones: { low: number; mid: number; high: number } } | null>(null);
+
   // 드랍/제작 확률 설정
-  const [dropRates, setDropRates] = useState({ high: 5.0, rare: 1.0, hero: 0.1, sr: 5.0 }); // 고급, 희귀, 고대, SR 확률 (%)
+  const [dropRates, setDropRates] = useState({ high: 10.0, rare: 3.0, hero: 1.0, sr: 5.0 }); // 고급, 희귀, 고대, SR 확률 (%)
   const [craftRates, setCraftRates] = useState({ high: 5.0, rare: 1.0, hero: 0.1, sr: 5.0 }); // 고급, 희귀, 고대, SR 확률 (%)
   
   // 강화 확률 설정 (각 강화 단계별 성공 확률)
@@ -406,8 +417,7 @@ export default function App() {
           attackSpeed: Math.floor(Math.random() * 6) + 15,
           skill: isSR ? 'SR' : 'R',
           slots: 0,
-          enhance: 0,
-          inlandTradeValue: 1  // 내륙 무역 코인 1개
+          enhance: 0
         }];
       });
       addLog(`[제작] 3T ${grade}${isSR ? ' SR' : ''} 획득`);
@@ -439,9 +449,7 @@ export default function App() {
           attackSpeed: Math.floor(Math.random() * 6) + 20,
           skill: isSR ? 'SR' : 'R',
           slots: 0,
-          enhance: 0,
-          inlandTradeValue: 2,
-          seaTradeValue: 1
+          enhance: 0
         }];
       });
       addLog(`[제작] 4T ${grade}${isSR ? ' SR' : ''} 획득`);
@@ -474,8 +482,7 @@ export default function App() {
           attackSpeed: Math.floor(Math.random() * 6) + 25,
           skill: isSR ? 'SR' : 'R',
           slots: 0,
-          enhance: 0,
-          seaTradeValue: 2
+          enhance: 0
         }];
       });
       addLog(`[제작] 5T ${grade}${isSR ? ' SR' : ''} 획득`);
@@ -554,7 +561,6 @@ export default function App() {
     setIsUpgradeMode(false);
     setIsEnhanceMode(false);
     setIsTradeMode(null);
-    setSelectedMaterials([]);
     addLog(`[정보] ${item.name} 선택`);
   };
 
@@ -563,7 +569,6 @@ export default function App() {
     setIsUpgradeMode(true);
     setIsEnhanceMode(false);
     setIsTradeMode(null);
-    setSelectedMaterials([]);
   };
 
   // --- 4-2. 강화 모드 시작 ---
@@ -571,7 +576,6 @@ export default function App() {
     setIsEnhanceMode(true);
     setIsUpgradeMode(false);
     setIsTradeMode(null);
-    setSelectedMaterials([]);
   };
 
   // --- 4-3. 무역 모드 시작 ---
@@ -582,26 +586,47 @@ export default function App() {
     setSelectedItem(null);
   };
 
+  // --- 무역 적격성/보상 계산 헬퍼 ---
+  const gradeIndex = (g: string) => ['일반','고급','희귀','고대','영웅','유일','유물'].indexOf(g);
+
+  const getInlandTradeValue = (item: Item): number => {
+    // 내륙무역: 3T 희귀 이상만
+    if (item.isStackable || item.tier !== 3 || gradeIndex(item.grade) < gradeIndex('희귀')) return 0;
+    return item.enhance >= 3 ? 2 : 1;
+  };
+
+  const getSeaTradeValue = (item: Item): number => {
+    // 해상무역: 4T 희귀+ (0강=1, 3강+=2), 5T 희귀+ (0강=3, 3강+=5)
+    if (item.isStackable) return 0;
+    if (item.tier === 4 && gradeIndex(item.grade) >= gradeIndex('희귀')) {
+      return item.enhance >= 3 ? 2 : 1;
+    }
+    if (item.tier === 5 && gradeIndex(item.grade) >= gradeIndex('희귀')) {
+      return item.enhance >= 3 ? 5 : 3;
+    }
+    return 0;
+  };
+
   // --- 4-4. 무역 실행 ---
   const handleTrade = (item: Item) => {
     if (!isTradeMode) return;
-    
-    const tradeValue = isTradeMode === 'inland' ? item.inlandTradeValue : item.seaTradeValue;
-    
-    if (!tradeValue || tradeValue === 0) {
+
+    const tradeValue = isTradeMode === 'inland' ? getInlandTradeValue(item) : getSeaTradeValue(item);
+
+    if (tradeValue === 0) {
       alert('이 아이템은 무역할 수 없습니다!');
       return;
     }
 
     // 아이템 제거 및 코인 추가
     setInventory(prev => prev.filter(i => i.id !== item.id));
-    
+
     if (isTradeMode === 'inland') {
       setInlandTradeCoins(prev => prev + tradeValue);
-      addLog(`[내륙무역] ${item.name} → 내륙무역코인 +${tradeValue}`);
+      addLog(`[내륙무역] ${item.name} ${item.grade} +${item.enhance}강 → 내륙코인 +${tradeValue}`);
     } else {
       setSeaTradeCoins(prev => prev + tradeValue);
-      addLog(`[해상무역] ${item.name} → 해상무역코인 +${tradeValue}`);
+      addLog(`[해상무역] ${item.name} ${item.grade} +${item.enhance}강 → 해상코인 +${tradeValue}`);
     }
   };
 
@@ -619,70 +644,57 @@ export default function App() {
     const successRate = enhanceRates[currentEnhance];
     const isSuccess = Math.random() * 100 < successRate;
 
-    // 보호제 사용 시 사용량 계산 및 누적
-    let protectionCount = 0;
-    if (useProtection) {
-      const tierCostRates: Record<number, number> = {3: 1.0, 4: 0.5, 5: 0.25, 6: 0.125, 7: 0.06};
-      const costUnit = tierCostRates[selectedItem.tier] || 1.0;
-      const failRate = 100 - successRate;
-      protectionCount = Math.ceil(failRate / costUnit);
+    if (ecoMode === 'BM') {
+      // === BM 모델: 보호제 사용 여부에 따른 처리 ===
+      let protectionCount = 0;
+      if (useProtection) {
+        const tierCostRates: Record<number, number> = {3: 1.0, 4: 0.5, 5: 0.25, 6: 0.125, 7: 0.06};
+        const costUnit = tierCostRates[selectedItem.tier] || 1.0;
+        const failRate = 100 - successRate;
+        protectionCount = Math.ceil(failRate / costUnit);
+        setUsedProtectionCount(prev => prev + protectionCount);
+      }
 
-      setUsedProtectionCount(prev => prev + protectionCount);
-    }
-
-    // 강화 실행
-    setInventory(prev => {
-      let updated = [...prev];
-
-      if (isSuccess) {
-        // 성공
-        const newEnhance = currentEnhance + 1;
-        updated = updated.map(item =>
-          item.id === selectedItem.id
-            ? {
-                ...item,
-                enhance: newEnhance,
-                attack: calculateAttack(item.tier, item.grade, newEnhance),
-                slots: calculateSlots(newEnhance),
-                usedProtectionCount: (item.usedProtectionCount || 0) + protectionCount
-              }
-            : item
-        );
-        addLog(`[강화 성공] ${selectedItem.name} +${newEnhance}강 달성!`);
-      } else {
-        if (useProtection) {
-          // 보호제 사용 - 실패해도 아이템 유지
+      setInventory(prev => {
+        let updated = [...prev];
+        if (isSuccess) {
+          const newEnhance = currentEnhance + 1;
           updated = updated.map(item =>
             item.id === selectedItem.id
               ? {
                   ...item,
+                  enhance: newEnhance,
+                  attack: calculateAttack(item.tier, item.grade, newEnhance),
+                  slots: calculateSlots(newEnhance),
                   usedProtectionCount: (item.usedProtectionCount || 0) + protectionCount
                 }
               : item
           );
-          addLog(`[강화 실패] ${selectedItem.name} +${currentEnhance}강 유지 (보호제 사용)`);
+          addLog(`[강화 성공] ${selectedItem.name} +${newEnhance}강 달성!`);
         } else {
-          // 보호제 미사용 - 아이템 파괴
-          // 소모된 아이템 통계 업데이트
-          const itemKey = selectedItem.name.includes('제작') ? `${selectedItem.tier}T제작` as keyof typeof consumedItems : `${selectedItem.tier}T드랍` as keyof typeof consumedItems;
-          if (itemKey in consumedItems) {
-            setConsumedItems(prev => ({ ...prev, [itemKey]: prev[itemKey] + 1 }));
+          if (useProtection) {
+            updated = updated.map(item =>
+              item.id === selectedItem.id
+                ? { ...item, usedProtectionCount: (item.usedProtectionCount || 0) + protectionCount }
+                : item
+            );
+            addLog(`[강화 실패] ${selectedItem.name} +${currentEnhance}강 유지 (보호제 사용)`);
+          } else {
+            const itemKey = selectedItem.name.includes('제작') ? `${selectedItem.tier}T제작` as keyof typeof consumedItems : `${selectedItem.tier}T드랍` as keyof typeof consumedItems;
+            if (itemKey in consumedItems) {
+              setConsumedItems(prev => ({ ...prev, [itemKey]: prev[itemKey] + 1 }));
+            }
+            updated = updated.filter(item => item.id !== selectedItem.id);
+            addLog(`[강화 실패] ${selectedItem.name} +${currentEnhance}강 파괴됨!`);
+            setSelectedItem(null);
+            setIsEnhanceMode(false);
           }
-
-          updated = updated.filter(item => item.id !== selectedItem.id);
-          addLog(`[강화 실패] ${selectedItem.name} +${currentEnhance}강 파괴됨!`);
-          setSelectedItem(null);
-          setIsEnhanceMode(false);
         }
-      }
+        return updated;
+      });
 
-      return updated;
-    });
-
-    // 선택 아이템 업데이트
-    if (selectedItem) {
+      // 선택 아이템 업데이트 (BM)
       if (isSuccess) {
-        // 성공 시: 강화 수치와 공격력, 세공슬롯, 보호제 카운트 업데이트
         setSelectedItem(prev => {
           if (!prev) return null;
           const newEnh = prev.enhance + 1;
@@ -695,145 +707,270 @@ export default function App() {
           };
         });
       } else if (useProtection) {
-        // 실패 + 보호제 사용 시: 보호제 카운트만 업데이트
         setSelectedItem(prev => prev ? {
           ...prev,
           usedProtectionCount: (prev.usedProtectionCount || 0) + protectionCount
         } : null);
       }
-    }
-  };
 
-  // --- 5. 재료 선택 토글 ---
-  const toggleMaterial = (item: Item) => {
-    if (selectedMaterials.find(m => m.id === item.id)) {
-      setSelectedMaterials(prev => prev.filter(m => m.id !== item.id));
     } else {
-      setSelectedMaterials(prev => [...prev, item]);
-    }
-  };
-
-  // --- 6. 경험치 계산 함수 ---
-  const getItemExp = (grade: string) => {
-    if (grade === '일반') return 10;
-    if (grade === '고급') return 16;
-    if (grade === '희귀') return 56;
-    return 0;
-  };
-
-  // --- 7. 승급 계산 함수 ---
-  const calculateUpgradeResult = (item: Item, materials: Item[]) => {
-    const currentExp = item.exp || 0;
-    const materialExp = materials.reduce((sum, m) => sum + getItemExp(m.grade), 0);
-    let totalExp = currentExp + materialExp;
-    let currentGrade = item.grade;
-    const maxGrade = getMaxGradeForTier(item.tier);
-
-    // 일반 → 고급 승급
-    if (currentGrade === '일반' && totalExp >= 10) {
-      // 티어별 최대 등급 확인
-      if (maxGrade === '일반') {
-        // 1티어는 일반까지만 가능, 경험치 버림
-        totalExp = 0;
+      // === HARDCORE 모델: 무조건 파괴 + 재료 지급 ===
+      if (isSuccess) {
+        const newEnhance = currentEnhance + 1;
+        setInventory(prev => prev.map(item =>
+          item.id === selectedItem.id
+            ? {
+                ...item,
+                enhance: newEnhance,
+                attack: calculateAttack(item.tier, item.grade, newEnhance),
+                slots: calculateSlots(newEnhance)
+              }
+            : item
+        ));
+        addLog(`[강화 성공] ${selectedItem.name} +${newEnhance}강 달성!`);
+        setSelectedItem(prev => {
+          if (!prev) return null;
+          const newEnh = prev.enhance + 1;
+          return {
+            ...prev,
+            enhance: newEnh,
+            attack: calculateAttack(prev.tier, prev.grade, newEnh),
+            slots: calculateSlots(newEnh)
+          };
+        });
       } else {
-        totalExp -= 10;
-        currentGrade = '고급';
+        // 실패: 무조건 파괴 + 재료 반환
+        const refund = (selectedItem.tier * 10) + (selectedItem.enhance * 5);
+        const itemKey = selectedItem.name.includes('제작') ? `${selectedItem.tier}T제작` as keyof typeof consumedItems : `${selectedItem.tier}T드랍` as keyof typeof consumedItems;
+        if (itemKey in consumedItems) {
+          setConsumedItems(prev => ({ ...prev, [itemKey]: prev[itemKey] + 1 }));
+        }
+        setInventory(prev => prev.filter(item => item.id !== selectedItem.id));
+        setUpgradeMaterials(prev => prev + refund);
+        addLog(`[강화 실패] ${selectedItem.name} +${currentEnhance}강 파괴됨! 재료 +${refund} 획득`);
+        setSelectedItem(null);
+        setIsEnhanceMode(false);
       }
     }
-
-    // 고급 → 희귀 승급
-    if (currentGrade === '고급' && totalExp >= 30) {
-      // 티어별 최대 등급 확인
-      if (maxGrade === '고급') {
-        // 2티어는 고급까지만 가능, 경험치 버림
-        totalExp = 0;
-      } else {
-        totalExp -= 50;
-        currentGrade = '희귀';
-      }
-    }
-
-    // 최대 등급에 도달하면 남은 경험치는 0
-    if (currentGrade === maxGrade) {
-      totalExp = 0;
-    }
-
-    return { grade: currentGrade, remainingExp: totalExp };
   };
 
-  // 재료 추가 가능 여부 확인
-  const canAddMaterial = (item: Item, material: Item, currentMaterials: Item[]) => {
-    // 최대 8개 제한
-    if (currentMaterials.length >= 8) return false;
-
-    // 이미 추가된 재료는 제외
-    if (currentMaterials.find(m => m.id === material.id)) return true;
-
-    const maxGrade = getMaxGradeForTier(item.tier);
-    const currentResult = calculateUpgradeResult(item, currentMaterials);
-    const nextResult = calculateUpgradeResult(item, [...currentMaterials, material]);
-
-    // 이미 최대 등급에 도달했고 경험치가 0이면 더 이상 추가 불가
-    if (currentResult.grade === maxGrade && currentResult.remainingExp === 0) {
-      return false;
-    }
-
-    // 다음 재료를 추가해도 등급과 경험치가 변하지 않으면 낭비
-    if (currentResult.grade === nextResult.grade &&
-        currentResult.remainingExp === nextResult.remainingExp &&
-        currentResult.grade === maxGrade) {
-      return false;
-    }
-
-    return true;
+  // --- 등급별 승급 배율 보너스 (소수점 내림) ---
+  const GRADE_MULTIPLIER_BONUS: Record<string, number> = {
+    '고급': 1.10,    // 10%
+    '희귀': 1.20,    // 20%
+    '고대': 1.30,    // 30%
+    '영웅': 1.50,    // 50%
+    '유일': 2.00,    // 100%
+    '유물': 3.00     // 200%
   };
 
-  // --- 8. 승급 실행 ---
-  const executeUpgrade = () => {
-    if (!selectedItem || selectedMaterials.length === 0) return;
+  // --- 분해 로직 (범위 기반) ---
+  const getDisassembleStones = (tier: number, grade?: string): { type: 'low' | 'mid' | 'high'; amount: number; label: string } => {
+    // 기본 범위 (등급 보너스 미적용)
+    let baseMin: number, baseMax: number;
+    let stoneType: 'low' | 'mid' | 'high';
 
-    const result = calculateUpgradeResult(selectedItem, selectedMaterials);
+    switch (tier) {
+      case 1:
+        baseMin = 3;
+        baseMax = 5;
+        stoneType = 'low';
+        break;
+      case 2:
+        baseMin = 8;
+        baseMax = 10;
+        stoneType = 'low';
+        break;
+      case 3:
+        baseMin = 8;
+        baseMax = 10;
+        stoneType = 'mid';
+        break;
+      case 4:
+        baseMin = 13;
+        baseMax = 15;
+        stoneType = 'mid';
+        break;
+      case 5:
+        baseMin = 8;
+        baseMax = 10;
+        stoneType = 'high';
+        break;
+      case 6:
+        baseMin = 13;
+        baseMax = 15;
+        stoneType = 'high';
+        break;
+      case 7:
+        baseMin = 18;
+        baseMax = 20;
+        stoneType = 'high';
+        break;
+      default:
+        return { type: 'low', amount: 0, label: '' };
+    }
 
-    // 소모된 재료 아이템 통계 업데이트
-    selectedMaterials.forEach(material => {
-      const itemKey = material.name.includes('제작') ? `${material.tier}T제작` as keyof typeof consumedItems : `${material.tier}T드랍` as keyof typeof consumedItems;
+    // 등급 배율 보너스 적용
+    let finalMin = baseMin;
+    let finalMax = baseMax;
+
+    if (grade && GRADE_MULTIPLIER_BONUS[grade]) {
+      const multiplier = GRADE_MULTIPLIER_BONUS[grade];
+      finalMin = Math.floor(baseMin * multiplier);
+      finalMax = Math.floor(baseMax * multiplier);
+    }
+
+    // 범위 내 랜덤 값 선택
+    const amount = Math.floor(Math.random() * (finalMax - finalMin + 1)) + finalMin;
+    const stoneTypeLabel = stoneType === 'low' ? '하급숯돌' : stoneType === 'mid' ? '중급숯돌' : '상급숯돌';
+
+    return { type: stoneType, amount, label: `${stoneTypeLabel} ${amount}` };
+  };
+
+  const toggleDisassembleItem = (item: Item) => {
+    if (disassembleSelection.find(i => i.id === item.id)) {
+      setDisassembleSelection(prev => prev.filter(i => i.id !== item.id));
+    } else {
+      setDisassembleSelection(prev => [...prev, item]);
+    }
+  };
+
+  const executeDisassemble = () => {
+    if (disassembleSelection.length === 0) return;
+
+    // 분해 결과 계산
+    const stoneGains = { low: 0, mid: 0, high: 0 };
+    disassembleSelection.forEach(item => {
+      const stones = getDisassembleStones(item.tier, item.grade);
+      stoneGains[stones.type] += stones.amount;
+    });
+
+    // 결과값을 팝업으로 표시
+    setDisassembleResult({
+      items: disassembleSelection,
+      stones: stoneGains
+    });
+  };
+
+  // 분해 결과 확인 후 저장
+  const confirmDisassemble = () => {
+    if (!disassembleResult) return;
+
+    const stoneGains = disassembleResult.stones;
+
+    // 소모 통계 업데이트
+    disassembleResult.items.forEach(item => {
+      const itemKey = item.name.includes('제작') ? `${item.tier}T제작` as keyof typeof consumedItems : `${item.tier}T드랍` as keyof typeof consumedItems;
       if (itemKey in consumedItems) {
         setConsumedItems(prev => ({ ...prev, [itemKey]: prev[itemKey] + 1 }));
       }
     });
 
-    setInventory(prev => {
-      // 재료 아이템들 제거
-      let remaining = prev.filter(item => !selectedMaterials.find(m => m.id === item.id));
+    setInventory(prev => prev.filter(item => !disassembleResult.items.find(d => d.id === item.id)));
+    setUpgradeStones(prev => ({
+      low: prev.low + stoneGains.low,
+      mid: prev.mid + stoneGains.mid,
+      high: prev.high + stoneGains.high
+    }));
 
-      // 선택된 아이템 업그레이드
-      remaining = remaining.map(item =>
-        item.id === selectedItem.id
-          ? {
-              ...item,
-              grade: result.grade,
-              attack: calculateAttack(item.tier, result.grade, item.enhance),
-              exp: result.remainingExp
-            }
-          : item
-      );
+    // 선택된 아이템이 분해되면 선택 해제
+    if (selectedItem && disassembleResult.items.find(d => d.id === selectedItem.id)) {
+      setSelectedItem(null);
+    }
 
-      return remaining;
-    });
+    const parts = [];
+    if (stoneGains.low > 0) parts.push(`하급숯돌 +${stoneGains.low}`);
+    if (stoneGains.mid > 0) parts.push(`중급숯돌 +${stoneGains.mid}`);
+    if (stoneGains.high > 0) parts.push(`상급숯돌 +${stoneGains.high}`);
+    addLog(`[분해] ${disassembleResult.items.length}개 분해 → ${parts.join(', ')}`);
 
-    addLog(`[승급] ${selectedItem.name} → ${result.grade} (EXP: +${result.remainingExp})`);
+    // 결과 초기화
+    setDisassembleResult(null);
+    setDisassembleSelection([]);
+    setIsDisassembleMode(false);
+  };
 
-    // 업그레이드된 아이템으로 선택 유지
+  // --- 승급 비용 계산 (숯돌 기반, 티어에 따라 숯돌 종류 결정) ---
+  const getUpgradeCost = (grade: string, tier: number): { type: 'low' | 'mid' | 'high'; amount: number; label: string } | null => {
+    // 티어별 숯돌 종류: 1-2T=하급, 3-4T=중급, 5-7T=상급
+    const stoneType: 'low' | 'mid' | 'high' = tier <= 2 ? 'low' : tier <= 4 ? 'mid' : 'high';
+    const stoneLabel = stoneType === 'low' ? '하급 숯돌' : stoneType === 'mid' ? '중급 숯돌' : '상급 숯돌';
+
+    // 등급별 필요 수량 (경험치 테이블 기반)
+    // 경험치 50 = 숯돌 50개
+    switch (grade) {
+      case '일반':
+        return { type: stoneType, amount: 10, label: `${stoneLabel} 10` };
+      case '고급':
+        // 고급 -> 희귀 에 필요한 경험치: 50
+        return { type: stoneType, amount: 50, label: `${stoneLabel} 50` };
+      case '희귀':
+        // 희귀 -> 고대 에 필요한 경험치: 100
+        return { type: stoneType, amount: 100, label: `${stoneLabel} 100` };
+      case '고대':
+        // 고대 -> 영웅 에 필요한 경험치: 150
+        return { type: stoneType, amount: 150, label: `${stoneLabel} 150` };
+      case '영웅':
+        // 영웅 -> 유일 에 필요한 경험치: 200
+        return { type: stoneType, amount: 200, label: `${stoneLabel} 200` };
+      case '유일':
+        // 유일 -> 유물 에 필요한 경험치: 300
+        return { type: stoneType, amount: 300, label: `${stoneLabel} 300` };
+      default:
+        return null;
+    }
+  };
+
+  const getNextGrade = (grade: string): Item['grade'] | null => {
+    const grades: Item['grade'][] = ['일반', '고급', '희귀', '고대', '영웅', '유일', '유물'];
+    const idx = grades.indexOf(grade as Item['grade']);
+    if (idx < 0 || idx >= grades.length - 1) return null;
+    return grades[idx + 1];
+  };
+
+  const canUpgradeWithStones = (item: Item): boolean => {
+    if (item.isStackable) return false;
+    const maxGrade = getMaxGradeForTier(item.tier);
+    if (item.grade === maxGrade) return false;
+    const cost = getUpgradeCost(item.grade, item.tier);
+    if (!cost) return false;
+    return upgradeStones[cost.type] >= cost.amount;
+  };
+
+  // --- 승급 실행 (숯돌 소모) ---
+  const executeUpgrade = () => {
+    if (!selectedItem) return;
+    const cost = getUpgradeCost(selectedItem.grade, selectedItem.tier);
+    const nextGrade = getNextGrade(selectedItem.grade);
+    if (!cost || !nextGrade) return;
+    if (upgradeStones[cost.type] < cost.amount) return;
+
+    // 숯돌 소모
+    setUpgradeStones(prev => ({ ...prev, [cost.type]: prev[cost.type] - cost.amount }));
+
+    // 아이템 승급
+    setInventory(prev => prev.map(item =>
+      item.id === selectedItem.id
+        ? {
+            ...item,
+            grade: nextGrade,
+            attack: calculateAttack(item.tier, nextGrade, item.enhance),
+            exp: 0
+          }
+        : item
+    ));
+
+    addLog(`[승급] ${selectedItem.name} → ${nextGrade} (${cost.label} 소모)`);
+
     setSelectedItem(prev =>
       prev ? {
         ...prev,
-        grade: result.grade,
-        attack: calculateAttack(prev.tier, result.grade, prev.enhance),
-        exp: result.remainingExp
+        grade: nextGrade,
+        attack: calculateAttack(prev.tier, nextGrade, prev.enhance),
+        exp: 0
       } : null
     );
     setIsUpgradeMode(false);
-    setSelectedMaterials([]);
   };
 
   // --- 8. 드래그 앤 드롭 핸들러 ---
@@ -884,6 +1021,8 @@ export default function App() {
       setInventory([]);
       setSelectedItem(null);
       setUsedProtectionCount(0); // 보호제 사용 통계도 초기화
+      setUpgradeMaterials(0); // HARDCORE 재료 초기화
+      setUpgradeStones({ low: 0, mid: 0, high: 0 }); // 숯돌 초기화
       setConsumedItems({
         '1T제작': 0, '1T드랍': 0,
         '2T제작': 0, '2T드랍': 0,
@@ -1106,6 +1245,28 @@ export default function App() {
           </div>
         </div>
       </div>
+      {/* 경제 모드 토글 */}
+      <div style={{display: 'flex', gap: '10px', marginBottom: '10px', padding: '8px 15px', backgroundColor: '#1e1e1e', borderRadius: '6px', border: '1px solid #333', alignItems: 'center'}}>
+        <span style={{fontSize: '0.85rem', fontWeight: 'bold', marginRight: '5px'}}>경제 모드:</span>
+        <button
+          onClick={() => setEcoMode('BM')}
+          style={{...actionBtn, backgroundColor: ecoMode === 'BM' ? '#d32f2f' : '#444', fontWeight: ecoMode === 'BM' ? 'bold' : 'normal', padding: '6px 14px'}}
+        >
+          🛡️ 보호제 모델 (BM)
+        </button>
+        <button
+          onClick={() => setEcoMode('HARDCORE')}
+          style={{...actionBtn, backgroundColor: ecoMode === 'HARDCORE' ? '#2e7d32' : '#444', fontWeight: ecoMode === 'HARDCORE' ? 'bold' : 'normal', padding: '6px 14px'}}
+        >
+          🔥 파괴/재료 모델 (Hardcore)
+        </button>
+        {ecoMode === 'HARDCORE' && (
+          <span style={{fontSize: '0.8rem', color: '#ff9800', marginLeft: '10px'}}>
+            재료: <span style={{color: '#ffd700', fontWeight: 'bold'}}>{upgradeMaterials}</span>
+          </span>
+        )}
+      </div>
+
       {/* 1~3T / 4~7T 좌우 배치 */}
       <div style={{display: 'flex', gap: '10px', marginBottom: '10px'}}>
         {/* 1~3T 영역 */}
@@ -1188,29 +1349,27 @@ export default function App() {
       </div>
 
       {/* 보호제 및 소모 통계 + 9강 달성 통계 */}
-      <div style={{padding: '8px 15px', backgroundColor: '#1a1a1a', borderRadius: '6px', marginBottom: '15px', border: '1px solid #333', fontSize: '0.8rem'}}>
-        <div style={{marginBottom: '4px'}}>
+      <div style={{padding: '8px 12px', backgroundColor: '#1a1a1a', borderRadius: '6px', marginBottom: '15px', border: '1px solid #333', fontSize: '0.75rem'}}>
+        <div style={{marginBottom: '4px', display: 'flex', gap: '20px', alignItems: 'center', flexWrap: 'wrap'}}>
           <span style={{color: '#ffeb3b', fontWeight: 'bold'}}>
             🛡️ 보호제: {usedProtectionCount.toLocaleString()}개 ({(usedProtectionCount * protectionPrice / 10000).toFixed(1)}만원)
           </span>
-          <span style={{marginLeft: '20px', color: '#ff6b6b', fontWeight: 'bold'}}>📦 소모:</span>
-          <span style={{marginLeft: '8px', color: '#bbb'}}>
-            1T제{consumedItems['1T제작']} 1T드{consumedItems['1T드랍']} 1T철{consumedItems['1T철']} |
-            2T제{consumedItems['2T제작']} 2T드{consumedItems['2T드랍']} 2T철{consumedItems['2T철']} |
-            3T제{consumedItems['3T제작']} 3T드{consumedItems['3T드랍']} 3T철{consumedItems['3T철']} |
-            4T제{consumedItems['4T제작']} 4T드{consumedItems['4T드랍']} 4T철{consumedItems['4T철']} |
-            5T제{consumedItems['5T제작']} 5T드{consumedItems['5T드랍']} 5T철{consumedItems['5T철']} |
-            6T제{consumedItems['6T제작']} 6T드{consumedItems['6T드랍']} 6T철{consumedItems['6T철']} |
-            7T제{consumedItems['7T제작']} 7T드{consumedItems['7T드랍']} 7T철{consumedItems['7T철']}
+          <span style={{color: '#ff6b6b', fontWeight: 'bold'}}>📦 소모:</span>
+          <span style={{color: '#bbb'}}>
+            드랍템 (1T: <span style={{color: '#ffeb3b'}}>{consumedItems['1T드랍']}</span>, 2T: <span style={{color: '#ffeb3b'}}>{consumedItems['2T드랍']}</span>, 3T: <span style={{color: '#ffeb3b'}}>{consumedItems['3T드랍']}</span>, 4T: <span style={{color: '#ffeb3b'}}>{consumedItems['4T드랍']}</span>, 5T: <span style={{color: '#ffeb3b'}}>{consumedItems['5T드랍']}</span>, 6T: <span style={{color: '#ffeb3b'}}>{consumedItems['6T드랍']}</span>, 7T: <span style={{color: '#ffeb3b'}}>{consumedItems['7T드랍']}</span>)
+          </span>
+          <span style={{color: '#bbb'}}>
+            제작템 (1T: <span style={{color: '#ffeb3b'}}>{consumedItems['1T제작']}</span>, 2T: <span style={{color: '#ffeb3b'}}>{consumedItems['2T제작']}</span>, 3T: <span style={{color: '#ffeb3b'}}>{consumedItems['3T제작']}</span>, 4T: <span style={{color: '#ffeb3b'}}>{consumedItems['4T제작']}</span>, 5T: <span style={{color: '#ffeb3b'}}>{consumedItems['5T제작']}</span>, 6T: <span style={{color: '#ffeb3b'}}>{consumedItems['6T제작']}</span>, 7T: <span style={{color: '#ffeb3b'}}>{consumedItems['7T제작']}</span>)
+          </span>
+          <span style={{color: '#bbb'}}>
+            철광석 (1T: <span style={{color: '#ffeb3b'}}>{consumedItems['1T철']}</span>, 2T: <span style={{color: '#ffeb3b'}}>{consumedItems['2T철']}</span>, 3T: <span style={{color: '#ffeb3b'}}>{consumedItems['3T철']}</span>, 4T: <span style={{color: '#ffeb3b'}}>{consumedItems['4T철']}</span>, 5T: <span style={{color: '#ffeb3b'}}>{consumedItems['5T철']}</span>, 6T: <span style={{color: '#ffeb3b'}}>{consumedItems['6T철']}</span>, 7T: <span style={{color: '#ffeb3b'}}>{consumedItems['7T철']}</span>)
           </span>
         </div>
-        <div style={{borderTop: '1px solid #333', paddingTop: '4px', color: '#aaa'}}>
-          <span style={{color: '#9575cd', fontWeight: 'bold'}}>📊 +9강 통계</span>
-          <span style={{marginLeft: '8px'}}>평균 소모: {Math.floor(1 / enhanceRates.reduce((acc, rate) => acc * (rate / 100), 1)).toLocaleString()}개</span>
-          <span style={{marginLeft: '12px'}}>보호제:</span>
+        <div style={{color: '#aaa', paddingTop: '4px', borderTop: '1px solid #333'}}>
+          <span style={{color: '#9575cd', fontWeight: 'bold'}}>📊 +9강</span>: 평균 {Math.floor(1 / enhanceRates.reduce((acc, rate) => acc * (rate / 100), 1)).toLocaleString()}개 | 
           {simulateAllTiers(enhanceRates).map(result => (
             <span key={result.tier} style={{marginLeft: '8px'}}>
-              {result.tier}T={result.totalProtectionItems.toLocaleString()}개({(result.totalCostKrw / 10000).toFixed(1)}만)
+              {result.tier}T: {result.totalProtectionItems.toLocaleString()}개
             </span>
           ))}
         </div>
@@ -1218,20 +1377,40 @@ export default function App() {
 
       <div style={{ display: 'flex', gap: '20px' }}>
         <div style={inventoryPanel}>
-          <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px'}}>
+          <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px'}}>
             <h3 style={{margin: 0}}>인벤토리</h3>
-            <button
-              onClick={clearAllInventory}
-              style={{
-                ...btnStyle,
-                backgroundColor: '#c62828',
-                padding: '8px 15px',
-                fontWeight: 'bold',
-                fontSize: '0.85rem'
-              }}
-            >
-              🗑️ 전체 삭제
-            </button>
+            <div style={{display: 'flex', gap: '8px'}}>
+              <button
+                onClick={() => { setIsDisassembleMode(true); setDisassembleSelection([]); }}
+                style={{
+                  ...btnStyle,
+                  backgroundColor: '#5d4037',
+                  padding: '8px 15px',
+                  fontWeight: 'bold',
+                  fontSize: '0.85rem'
+                }}
+              >
+                🔨 분해
+              </button>
+              <button
+                onClick={clearAllInventory}
+                style={{
+                  ...btnStyle,
+                  backgroundColor: '#c62828',
+                  padding: '8px 15px',
+                  fontWeight: 'bold',
+                  fontSize: '0.85rem'
+                }}
+              >
+                🗑️ 전체 삭제
+              </button>
+            </div>
+          </div>
+          {/* 숯돌 표시 */}
+          <div style={{display: 'flex', gap: '12px', marginBottom: '10px', padding: '6px 10px', backgroundColor: '#2a2a2a', borderRadius: '4px', fontSize: '0.8rem'}}>
+            <span style={{color: '#a5d6a7'}}>🔹 하급 숯돌: <b>{upgradeStones.low}</b></span>
+            <span style={{color: '#90caf9'}}>🔷 중급 숯돌: <b>{upgradeStones.mid}</b></span>
+            <span style={{color: '#ffab91'}}>🔶 상급 숯돌: <b>{upgradeStones.high}</b></span>
           </div>
           <div style={itemGrid}>
             {inventory.map(item => (
@@ -1284,88 +1463,73 @@ export default function App() {
 
           {/* 통계 정보 */}
           <div style={{marginTop: '20px', padding: '20px', backgroundColor: '#1a1a1a', borderRadius: '8px', border: '1px solid #333'}}>
-            <h4 style={{margin: '0 0 15px 0', color: '#64b5f6'}}>📊 등급별 필요 아이템 통계 (일반 아이템 기준)</h4>
+            <h4 style={{margin: '0 0 15px 0', color: '#64b5f6'}}>📊 승급 시스템 안내</h4>
             <div style={{fontSize: '0.75rem', color: '#aaa', marginBottom: '15px', fontStyle: 'italic'}}>
-              * 승급 경험치: 일반→고급 10 EXP, 고급→희귀 30 EXP<br/>
-              * 일반: 10 EXP / 고급: 16 EXP / 희귀: 56 EXP
+              * 경험치 시스템: 각 등급 승급 시 해당 경험치만큼의 숯돌이 필요합니다 (경험치 = 숯돌 개수)<br/>
+              * 등급 배율 보너스: 높은 등급의 아이템 분해 시 더 많은 숯돌을 획득합니다 (소수점 내림)
             </div>
             
-            {/* 승급 재료 */}
+            {/* 승급 경험치 테이블 */}
             <div style={{marginBottom: '20px'}}>
-              <div style={{fontSize: '0.9rem', fontWeight: 'bold', marginBottom: '10px', color: '#ffb74d'}}>🔼 승급 필요 재료</div>
+              <div style={{fontSize: '0.9rem', fontWeight: 'bold', marginBottom: '10px', color: '#ffb74d'}}>🔼 승급 필요 경험치 (숯돌)</div>
               <div style={{display: 'flex', flexDirection: 'column', gap: '5px', paddingLeft: '10px'}}>
                 <div style={{fontSize: '0.8rem'}}>
-                  • 고급 1개 = 일반 2개 소모 (베이스 1개 + 재료 1개)
+                  • 일반 → 고급: 10 EXP = 하급 숯돌 10개
                 </div>
                 <div style={{fontSize: '0.8rem'}}>
-                  • 희귀 1개 = 고급 3개 소모 = 일반 6개 소모 (베이스 1개 + 재료 2개)
+                  • 고급 → 희귀: 50 EXP = 하급/중급/상급 숯돌 50개 (티어별)
+                </div>
+                <div style={{fontSize: '0.8rem'}}>
+                  • 희귀 → 고대: 100 EXP = 중급/상급 숯돌 100개 (티어별)
+                </div>
+                <div style={{fontSize: '0.8rem'}}>
+                  • 고대 → 영웅: 150 EXP = 중급/상급 숯돌 150개 (티어별)
+                </div>
+                <div style={{fontSize: '0.8rem'}}>
+                  • 영웅 → 유일: 200 EXP = 상급 숯돌 200개
+                </div>
+                <div style={{fontSize: '0.8rem'}}>
+                  • 유일 → 유물: 300 EXP = 상급 숯돌 300개
                 </div>
               </div>
             </div>
             
-            {/* 1T 제작 */}
+            {/* 등급별 배율 보너스 */}
             <div style={{marginBottom: '20px'}}>
-              <div style={{fontSize: '0.9rem', fontWeight: 'bold', marginBottom: '10px', color: '#81c784'}}>1T 제작템 (최대: 일반)</div>
+              <div style={{fontSize: '0.9rem', fontWeight: 'bold', marginBottom: '10px', color: '#81c784'}}>⭐ 등급 배율 보너스</div>
               <div style={{display: 'flex', flexDirection: 'column', gap: '5px', paddingLeft: '10px'}}>
                 <div style={{fontSize: '0.8rem'}}>
-                  • 일반 1개: 1T철광석 10개
+                  • 고급 등급: 기본값 × 1.10 (+10%)
+                </div>
+                <div style={{fontSize: '0.8rem'}}>
+                  • 희귀 등급: 기본값 × 1.20 (+20%)
+                </div>
+                <div style={{fontSize: '0.8rem'}}>
+                  • 고대 등급: 기본값 × 1.30 (+30%)
+                </div>
+                <div style={{fontSize: '0.8rem'}}>
+                  • 영웅 등급: 기본값 × 1.50 (+50%)
+                </div>
+                <div style={{fontSize: '0.8rem'}}>
+                  • 유일 등급: 기본값 × 2.00 (+100%)
+                </div>
+                <div style={{fontSize: '0.8rem'}}>
+                  • 유물 등급: 기본값 × 3.00 (+200%)
                 </div>
               </div>
             </div>
-
-            {/* 2T 제작 */}
-            <div style={{marginBottom: '20px'}}>
-              <div style={{fontSize: '0.9rem', fontWeight: 'bold', marginBottom: '10px', color: '#81c784'}}>2T 제작템 (최대: 고급)</div>
-              <div style={{display: 'flex', flexDirection: 'column', gap: '5px', paddingLeft: '10px'}}>
-                <div style={{fontSize: '0.8rem'}}>
-                  • 일반 1개: 1T제작(일반) 1개 + 1T드랍(일반) 1개 + 2T철광석 10개
-                </div>
-                <div style={{fontSize: '0.75rem', color: '#888', paddingLeft: '15px'}}>
-                  → 총 소모: 1T철광석 10개 + 1T드랍(일반) 1개 + 2T철광석 10개
-                </div>
-                
-                <div style={{fontSize: '0.8rem', color: '#ffd54f', marginTop: '8px'}}>
-                  • 고급 1개 = 2T 일반 2개 소모
-                </div>
-                <div style={{fontSize: '0.75rem', color: '#888', paddingLeft: '15px'}}>
-                  → 총 소모: 1T철광석 20개 + 1T드랍(일반) 2개 + 2T철광석 20개
-                </div>
-              </div>
-            </div>
-
-            {/* 3T 제작 */}
-            <div style={{marginBottom: '20px'}}>
-              <div style={{fontSize: '0.9rem', fontWeight: 'bold', marginBottom: '10px', color: '#81c784'}}>3T 제작템 (최대: 희귀)</div>
-              <div style={{display: 'flex', flexDirection: 'column', gap: '5px', paddingLeft: '10px'}}>
-                <div style={{fontSize: '0.8rem'}}>
-                  • 일반 1개: 2T드랍(고급) 1개 + 2T제작(고급) 1개
-                </div>
-                <div style={{fontSize: '0.75rem', color: '#888', paddingLeft: '15px'}}>
-                  = 2T드랍(일반) 2개 + 2T제작(일반) 2개
-                </div>
-                <div style={{fontSize: '0.75rem', color: '#888', paddingLeft: '15px'}}>
-                  → 총 소모: 1T제작(일반) 2개 + 1T드랍(일반) 4개 + 2T철광석 20개
-                </div>
-                <div style={{fontSize: '0.75rem', color: '#888', paddingLeft: '15px'}}>
-                  → 총 소모: 1T철광석 20개 + 1T드랍(일반) 4개 + 2T철광석 20개
-                </div>
-                
-                <div style={{fontSize: '0.8rem', color: '#ffd54f', marginTop: '8px'}}>
-                  • 고급 1개 = 3T 일반 2개 소모
-                </div>
-                <div style={{fontSize: '0.75rem', color: '#888', paddingLeft: '15px'}}>
-                  → 총 소모: 1T철광석 40개 + 1T드랍(일반) 8개 + 2T철광석 40개
-                </div>
-                
-                <div style={{fontSize: '0.8rem', color: '#ff9800', marginTop: '8px'}}>
-                  • 희귀 1개 = 3T 고급 3개 = 3T 일반 6개 소모
-                </div>
-                <div style={{fontSize: '0.75rem', color: '#888', paddingLeft: '15px'}}>
-                  → 2T드랍(일반) 12개 + 2T제작(일반) 12개
-                </div>
-                <div style={{fontSize: '0.75rem', color: '#888', paddingLeft: '15px'}}>
-                  → 총 소모: 1T철광석 120개 + 1T드랍(일반) 24개 + 2T철광석 120개
-                </div>
+            
+            {/* 분해 시 획득 숯돌 */}
+            <div style={{marginBottom: '20px', padding: '10px', backgroundColor: '#2a2a2a', borderRadius: '4px'}}>
+              <div style={{fontSize: '0.9rem', fontWeight: 'bold', marginBottom: '10px', color: '#90caf9'}}>🔨 분해 시 획득 숯돌 (범위 기본값)</div>
+              <div style={{display: 'flex', flexDirection: 'column', gap: '5px', paddingLeft: '10px', fontSize: '0.8rem'}}>
+                <div>• 1 Tier: 하급 숯돌 3~5개</div>
+                <div>• 2 Tier: 하급 숯돌 8~10개</div>
+                <div>• 3 Tier: 중급 숯돌 8~10개</div>
+                <div>• 4 Tier: 중급 숯돌 13~15개</div>
+                <div>• 5 Tier: 상급 숯돌 8~10개</div>
+                <div>• 6 Tier: 상급 숯돌 13~15개</div>
+                <div>• 7 Tier: 상급 숯돌 18~20개</div>
               </div>
             </div>
 
@@ -1480,6 +1644,9 @@ export default function App() {
             <div style={{padding: '15px', backgroundColor: '#2a2a2a', borderRadius: '8px', marginBottom: '15px'}}>
               <div style={{fontSize: '0.9rem', marginBottom: '10px', color: '#9575cd', fontWeight: 'bold'}}>
                 +{selectedItem.enhance + 1}강 도전
+                <span style={{marginLeft: '10px', fontSize: '0.75rem', color: ecoMode === 'BM' ? '#d32f2f' : '#2e7d32'}}>
+                  [{ecoMode === 'BM' ? '🛡️ BM' : '🔥 HARDCORE'}]
+                </span>
               </div>
               <div style={{fontSize: '0.85rem', marginBottom: '8px'}}>
                 • 성공 확률: <span style={{color: '#4caf50', fontWeight: 'bold'}}>{enhanceRates[selectedItem.enhance]?.toFixed(1) || 0}%</span>
@@ -1490,33 +1657,52 @@ export default function App() {
               <div style={{fontSize: '0.85rem', marginBottom: '8px'}}>
                 • 필요 재료: {selectedItem.tier}T {selectedItem.name.includes('드랍') ? '드랍템' : '제작템'} 1개
               </div>
-              <div style={{fontSize: '0.85rem', color: '#ffeb3b'}}>
-                • 이번에 보호제 사용 시: {(() => {
-                  const tierCostRates: Record<number, number> = {3: 1.0, 4: 0.5, 5: 0.25, 6: 0.125, 7: 0.06};
-                  const costUnit = tierCostRates[selectedItem.tier] || 1.0;
-                  const failRate = 100 - (enhanceRates[selectedItem.enhance] || 0);
-                  const protectionCount = Math.ceil(failRate / costUnit);
-                  return `${protectionCount}개 (${(protectionCount * protectionPrice / 10000).toFixed(1)}만원)`;
-                })()}
-              </div>
-              <div style={{fontSize: '0.85rem', color: '#64dd17', marginTop: '5px'}}>
-                • 이 아이템에 총 사용된 보호제: {(selectedItem.usedProtectionCount || 0).toLocaleString()}개 ({((selectedItem.usedProtectionCount || 0) * protectionPrice / 10000).toFixed(1)}만원)
-              </div>
+              {ecoMode === 'BM' ? (
+                <>
+                  <div style={{fontSize: '0.85rem', color: '#ffeb3b'}}>
+                    • 이번에 보호제 사용 시: {(() => {
+                      const tierCostRates: Record<number, number> = {3: 1.0, 4: 0.5, 5: 0.25, 6: 0.125, 7: 0.06};
+                      const costUnit = tierCostRates[selectedItem.tier] || 1.0;
+                      const failRate = 100 - (enhanceRates[selectedItem.enhance] || 0);
+                      const protectionCount = Math.ceil(failRate / costUnit);
+                      return `${protectionCount}개 (${(protectionCount * protectionPrice / 10000).toFixed(1)}만원)`;
+                    })()}
+                  </div>
+                  <div style={{fontSize: '0.85rem', color: '#64dd17', marginTop: '5px'}}>
+                    • 이 아이템에 총 사용된 보호제: {(selectedItem.usedProtectionCount || 0).toLocaleString()}개 ({((selectedItem.usedProtectionCount || 0) * protectionPrice / 10000).toFixed(1)}만원)
+                  </div>
+                </>
+              ) : (
+                <div style={{fontSize: '0.85rem', color: '#ff9800'}}>
+                  • 실패 시 파괴 + 재료 반환: <span style={{color: '#ffd700', fontWeight: 'bold'}}>{(selectedItem.tier * 10) + (selectedItem.enhance * 5)}</span>개
+                </div>
+              )}
             </div>
 
             <div style={{display: 'flex', flexDirection: 'column', gap: '10px'}}>
-              <button
-                style={{...btnStyle, backgroundColor: '#4caf50', padding: '12px', fontWeight: 'bold'}}
-                onClick={() => handleEnhance(false)}
-              >
-                보호제 없이 강화 (실패 시 파괴)
-              </button>
-              <button
-                style={{...btnStyle, backgroundColor: '#ff9800', padding: '12px', fontWeight: 'bold'}}
-                onClick={() => handleEnhance(true)}
-              >
-                보호제 사용 강화 (실패 시 유지)
-              </button>
+              {ecoMode === 'BM' ? (
+                <>
+                  <button
+                    style={{...btnStyle, backgroundColor: '#4caf50', padding: '12px', fontWeight: 'bold'}}
+                    onClick={() => handleEnhance(false)}
+                  >
+                    보호제 없이 강화 (실패 시 파괴)
+                  </button>
+                  <button
+                    style={{...btnStyle, backgroundColor: '#ff9800', padding: '12px', fontWeight: 'bold'}}
+                    onClick={() => handleEnhance(true)}
+                  >
+                    보호제 사용 강화 (실패 시 유지)
+                  </button>
+                </>
+              ) : (
+                <button
+                  style={{...btnStyle, backgroundColor: '#2e7d32', padding: '12px', fontWeight: 'bold'}}
+                  onClick={() => handleEnhance(false)}
+                >
+                  🔥 강화 (실패 시 파괴 + 재료 획득)
+                </button>
+              )}
               <button style={{...btnStyle, backgroundColor: '#555', padding: '8px'}} onClick={() => setIsEnhanceMode(false)}>
                 취소
               </button>
@@ -1582,10 +1768,10 @@ export default function App() {
         </div>
       )}
 
-      {/* 승급 모달 */}
+      {/* 승급 모달 (숯돌 기반) */}
       {selectedItem && isUpgradeMode && (
         <div style={modalOverlayStyle}>
-          <div style={{...modalContentStyle, minWidth: '600px', border: '2px solid #ffd700'}}>
+          <div style={{...modalContentStyle, minWidth: '500px', border: '2px solid #ffd700'}}>
             <h3 style={{ color: '#ffd700', marginTop: 0 }}>✨ 아이템 승급</h3>
 
             {/* 선택된 아이템 정보 */}
@@ -1593,118 +1779,228 @@ export default function App() {
               <div style={{fontSize: '0.95rem', fontWeight: 'bold', marginBottom: '8px'}}>{selectedItem.name}</div>
               <div style={infoText}>공격력: {selectedItem.attack} | 공속: +{selectedItem.attackSpeed} | 스킬: {selectedItem.skill}</div>
               <div style={infoText}>{selectedItem.slots > 0 ? `세공: ${selectedItem.slots}칸 | ` : ''}강화: +{selectedItem.enhance}</div>
-              <div style={{...infoText, color: '#ffd700', marginTop: '5px'}}>현재 등급: {selectedItem.grade} | 현재 EXP: {selectedItem.exp || 0}</div>
+              <div style={{...infoText, color: '#ffd700', marginTop: '5px'}}>현재 등급: {selectedItem.grade}</div>
             </div>
 
-            {/* 예상 결과 */}
+            {/* 승급 정보 */}
             {(() => {
-              const result = calculateUpgradeResult(selectedItem, selectedMaterials);
-              const currentExp = (selectedItem.exp || 0) + selectedMaterials.reduce((sum, item) => sum + getItemExp(item.grade), 0);
+              const cost = getUpgradeCost(selectedItem.grade, selectedItem.tier);
+              const nextGrade = getNextGrade(selectedItem.grade);
+              const canUpgrade = canUpgradeWithStones(selectedItem);
+              const stoneTypeLabel = cost?.type === 'low' ? '하급 숯돌' : cost?.type === 'mid' ? '중급 숯돌' : '상급 숯돌';
+              const stoneTypeColor = cost?.type === 'low' ? '#a5d6a7' : cost?.type === 'mid' ? '#90caf9' : '#ffab91';
+
               return (
-                <div style={{marginBottom: '20px', padding: '15px', backgroundColor: '#2a2a2a', borderRadius: '8px'}}>
-                  <div style={{fontSize: '1rem', fontWeight: 'bold', marginBottom: '10px', color: '#4caf50'}}>
-                    예상 결과
+                <div style={{padding: '15px', backgroundColor: '#2a2a2a', borderRadius: '8px', marginBottom: '20px'}}>
+                  <div style={{fontSize: '0.9rem', marginBottom: '10px', fontWeight: 'bold', color: '#ffd700'}}>
+                    {selectedItem.grade} → {nextGrade}
                   </div>
-                  <div style={{fontSize: '0.9rem', marginBottom: '5px'}}>
-                    총 경험치: {currentExp} EXP
+                  <div style={{fontSize: '0.85rem', marginBottom: '8px'}}>
+                    • 필요 숯돌: <span style={{color: stoneTypeColor, fontWeight: 'bold'}}>{stoneTypeLabel} {cost?.amount}개</span>
                   </div>
-                  <div style={{fontSize: '0.9rem', marginBottom: '5px'}}>
-                    예상 등급: <span style={{color: result.grade === '희귀' ? '#64b5f6' : result.grade === '고급' ? '#81c784' : '#fff', fontWeight: 'bold'}}>{result.grade}</span>
+                  <div style={{fontSize: '0.85rem', marginBottom: '8px'}}>
+                    • 보유: <span style={{color: canUpgrade ? '#4caf50' : '#f44336', fontWeight: 'bold'}}>
+                      {stoneTypeLabel} {cost ? upgradeStones[cost.type] : 0}개
+                    </span>
                   </div>
-                  <div style={{fontSize: '0.9rem', color: '#4caf50'}}>
-                    남은 경험치: {result.remainingExp} EXP
-                  </div>
+                  {!canUpgrade && (
+                    <div style={{fontSize: '0.8rem', color: '#f44336', marginTop: '5px'}}>
+                      숯돌이 부족합니다. 아이템을 분해하여 숯돌을 획득하세요!
+                    </div>
+                  )}
                 </div>
               );
             })()}
 
-            {/* 선택된 재료 (최대 8개) */}
-            <div style={{marginBottom: '20px'}}>
-              <div style={{fontSize: '0.95rem', fontWeight: 'bold', marginBottom: '10px'}}>
-                선택된 재료 ({selectedMaterials.length}/8)
-              </div>
-              <div style={{display: 'flex', flexWrap: 'wrap', gap: '8px', minHeight: '60px', padding: '10px', backgroundColor: '#1a1a1a', borderRadius: '5px'}}>
-                {selectedMaterials.map(item => (
-                  <div
-                    key={item.id}
-                    onClick={() => toggleMaterial(item)}
-                    style={{
-                      ...itemCard,
-                      backgroundColor: '#1565c0',
-                      cursor: 'pointer',
-                      padding: '8px',
-                      minWidth: '120px'
-                    }}
-                  >
-                    <div style={{fontSize: '0.75rem', fontWeight: 'bold'}}>{item.name}</div>
-                    <div style={{fontSize: '0.65rem'}}>등급: {item.grade} | EXP: {getItemExp(item.grade)}</div>
-                    <div style={{fontSize: '0.65rem'}}>공속: +{item.attackSpeed} | 강화: +{item.enhance}</div>
-                  </div>
-                ))}
-              </div>
+            <div style={{ display: 'flex', gap: '15px', justifyContent: 'center' }}>
+              <button
+                onClick={executeUpgrade}
+                disabled={!canUpgradeWithStones(selectedItem)}
+                style={{
+                  ...btnStyle,
+                  backgroundColor: canUpgradeWithStones(selectedItem) ? '#2e7d32' : '#555',
+                  padding: '12px 30px',
+                  fontSize: '1rem',
+                  fontWeight: 'bold',
+                  cursor: canUpgradeWithStones(selectedItem) ? 'pointer' : 'not-allowed'
+                }}
+              >
+                승급
+              </button>
+              <button
+                onClick={() => setIsUpgradeMode(false)}
+                style={{
+                  ...btnStyle,
+                  backgroundColor: '#555',
+                  padding: '12px 30px',
+                  fontSize: '1rem',
+                  fontWeight: 'bold'
+                }}
+              >
+                취소
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 분해 모달 */}
+      {isDisassembleMode && (
+        <div style={modalOverlayStyle}>
+          <div style={{...modalContentStyle, minWidth: '600px', border: '2px solid #795548'}}>
+            <h3 style={{ color: '#a1887f', marginTop: 0 }}>🔨 아이템 분해</h3>
+
+            <div style={{marginBottom: '15px', padding: '10px', backgroundColor: '#2a2a2a', borderRadius: '8px', fontSize: '0.8rem', color: '#aaa'}}>
+              분해 시 숯돌 획득 (범위): 1T=하급숯돌3~5 | 2T=하급숯돌8~10 | 3T=중급숯돌8~10 | 4T=중급숯돌13~15 | 5T=상급숯돌8~10 | 6T=상급숯돌13~15 | 7T=상급숯돌18~20
+              <br/>
+              <span style={{color: '#ffb74d'}}>등급 배율: 고급 +10% | 희귀 +20% | 고대 +30% | 영웅 +50% | 유일 +100% | 유물 +200% (소수점 내림)</span>
             </div>
 
-            {/* 재료 선택 목록 */}
-            <div style={{marginBottom: '20px', maxHeight: '300px', overflowY: 'auto', border: '1px solid #333', borderRadius: '5px', padding: '10px', backgroundColor: '#1a1a1a'}}>
-              <div style={{fontSize: '0.9rem', marginBottom: '10px', fontWeight: 'bold'}}>재료 선택 (같은 타입):</div>
+            {/* 선택된 아이템 요약 */}
+            {disassembleSelection.length > 0 && (
+              <div style={{marginBottom: '15px', padding: '10px', backgroundColor: '#3e2723', borderRadius: '8px', fontSize: '0.85rem'}}>
+                <span style={{fontWeight: 'bold'}}>선택: {disassembleSelection.length}개</span>
+                <span style={{marginLeft: '10px', color: '#ffab91'}}>(분해 버튼을 눌러 결과를 확인하세요)</span>
+              </div>
+            )}
+
+            {/* 분해 가능 아이템 목록 */}
+            <div style={{marginBottom: '20px', maxHeight: '400px', overflowY: 'auto', border: '1px solid #333', borderRadius: '5px', padding: '10px', backgroundColor: '#1a1a1a'}}>
               {inventory
-                .filter(item => item.id !== selectedItem.id && item.name === selectedItem.name && !item.isStackable)
+                .filter(item => !item.isStackable)
                 .map(item => {
-                  const isSelected = selectedMaterials.find(m => m.id === item.id);
-                  const canAdd = canAddMaterial(selectedItem, item, selectedMaterials);
+                  const isSelected = !!disassembleSelection.find(d => d.id === item.id);
                   return (
                     <div
                       key={item.id}
-                      onClick={() => {
-                        if (isSelected || canAdd) {
-                          toggleMaterial(item);
-                        }
-                      }}
+                      onClick={() => toggleDisassembleItem(item)}
                       style={{
                         ...itemCard,
                         backgroundColor: getGradeColor(item.grade),
-                        cursor: isSelected || canAdd ? 'pointer' : 'not-allowed',
-                        opacity: isSelected || canAdd ? 1 : 0.5,
+                        cursor: 'pointer',
                         marginBottom: '8px',
                         padding: '10px',
-                        border: isSelected ? '3px solid #64b5f6' : (canAdd ? '2px solid #555' : '2px solid #333'),
-                        boxShadow: isSelected ? '0 0 8px rgba(100, 181, 246, 0.5)' : 'none'
+                        border: isSelected ? '3px solid #ffab91' : '1px solid #555',
+                        boxShadow: isSelected ? '0 0 8px rgba(255, 171, 145, 0.5)' : 'none'
                       }}
                     >
                       <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
                         <div>
-                          <div style={{fontSize: '0.85rem', fontWeight: 'bold'}}>{item.name} ({item.grade})</div>
-                          <div style={{fontSize: '0.75rem', color: '#aaa'}}>
-                            공격: {item.attack} | 공속: +{item.attackSpeed} | 스킬: {item.skill} | 강화: +{item.enhance}
+                          <div style={{fontSize: '0.85rem', fontWeight: 'bold'}}>
+                            {item.skill === 'SR' && <span style={{color: '#ff6b00'}}>⭐ </span>}
+                            {item.name} {item.enhance > 0 ? `+${item.enhance}` : ''} ({item.grade})
                           </div>
-                        </div>
-                        <div style={{fontSize: '0.85rem', fontWeight: 'bold', color: '#ffd700'}}>
-                          +{getItemExp(item.grade)} EXP
+                          <div style={{fontSize: '0.75rem', color: '#aaa'}}>
+                            공격: {item.attack} | 공속: +{item.attackSpeed}
+                          </div>
                         </div>
                       </div>
                     </div>
                   );
                 })
               }
+              {inventory.filter(item => !item.isStackable).length === 0 && (
+                <div style={{padding: '30px', textAlign: 'center', color: '#666'}}>
+                  분해 가능한 아이템이 없습니다
+                </div>
+              )}
             </div>
 
             <div style={{ display: 'flex', gap: '15px', justifyContent: 'center' }}>
               <button
-                onClick={executeUpgrade}
-                disabled={selectedMaterials.length === 0}
+                onClick={executeDisassemble}
+                disabled={disassembleSelection.length === 0}
                 style={{
                   ...btnStyle,
-                  backgroundColor: selectedMaterials.length > 0 ? '#2e7d32' : '#555',
+                  backgroundColor: disassembleSelection.length > 0 ? '#5d4037' : '#555',
                   padding: '12px 30px',
                   fontSize: '1rem',
                   fontWeight: 'bold',
-                  cursor: selectedMaterials.length > 0 ? 'pointer' : 'not-allowed'
+                  cursor: disassembleSelection.length > 0 ? 'pointer' : 'not-allowed'
                 }}
               >
-                승급 확인
+                분해 ({disassembleSelection.length}개)
               </button>
               <button
-                onClick={() => { setIsUpgradeMode(false); setSelectedMaterials([]); }}
+                onClick={() => { setIsDisassembleMode(false); setDisassembleSelection([]); }}
+                style={{
+                  ...btnStyle,
+                  backgroundColor: '#555',
+                  padding: '12px 30px',
+                  fontSize: '1rem',
+                  fontWeight: 'bold'
+                }}
+              >
+                닫기
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 분해 결과 팝업 */}
+      {disassembleResult && (
+        <div style={modalOverlayStyle}>
+          <div style={{...modalContentStyle, minWidth: '500px', border: '2px solid #a1887f'}}>
+            <h3 style={{ color: '#a1887f', marginTop: 0 }}>🔨 분해 완료</h3>
+
+            <div style={{marginBottom: '20px', padding: '15px', backgroundColor: '#2a2a2a', borderRadius: '8px'}}>
+              <div style={{fontSize: '0.9rem', fontWeight: 'bold', marginBottom: '15px', color: '#ffb74d'}}>
+                {disassembleResult.items.length}개 아이템 분해 결과
+              </div>
+
+              {/* 분해된 아이템 목록 */}
+              <div style={{marginBottom: '15px', maxHeight: '200px', overflowY: 'auto', border: '1px solid #333', borderRadius: '5px', padding: '10px', backgroundColor: '#1a1a1a'}}>
+                {disassembleResult.items.map((item, idx) => (
+                  <div key={idx} style={{fontSize: '0.8rem', marginBottom: '8px', paddingBottom: '8px', borderBottom: idx < disassembleResult.items.length - 1 ? '1px solid #333' : 'none'}}>
+                    <div style={{fontWeight: 'bold', color: getGradeColor(item.grade)}}>
+                      {item.name} {item.enhance > 0 ? `+${item.enhance}` : ''} ({item.grade})
+                    </div>
+                    <div style={{fontSize: '0.75rem', color: '#aaa', marginTop: '3px'}}>
+                      공격: {item.attack} | 공속: +{item.attackSpeed}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* 획득 숯돌 */}
+              <div style={{marginTop: '15px', padding: '12px', backgroundColor: '#3e2723', borderRadius: '6px'}}>
+                <div style={{fontSize: '0.9rem', fontWeight: 'bold', marginBottom: '10px', color: '#ffab91'}}>
+                  획득 숯돌
+                </div>
+                {disassembleResult.stones.low > 0 && (
+                  <div style={{fontSize: '0.85rem', marginBottom: '6px', color: '#a5d6a7'}}>
+                    🔹 하급 숯돌: <span style={{fontWeight: 'bold'}}>{disassembleResult.stones.low}개</span>
+                  </div>
+                )}
+                {disassembleResult.stones.mid > 0 && (
+                  <div style={{fontSize: '0.85rem', marginBottom: '6px', color: '#90caf9'}}>
+                    🔷 중급 숯돌: <span style={{fontWeight: 'bold'}}>{disassembleResult.stones.mid}개</span>
+                  </div>
+                )}
+                {disassembleResult.stones.high > 0 && (
+                  <div style={{fontSize: '0.85rem', color: '#ffab91'}}>
+                    🔶 상급 숯돌: <span style={{fontWeight: 'bold'}}>{disassembleResult.stones.high}개</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '15px', justifyContent: 'center' }}>
+              <button
+                onClick={confirmDisassemble}
+                style={{
+                  ...btnStyle,
+                  backgroundColor: '#5d4037',
+                  padding: '12px 30px',
+                  fontSize: '1rem',
+                  fontWeight: 'bold'
+                }}
+              >
+                확인
+              </button>
+              <button
+                onClick={() => setDisassembleResult(null)}
                 style={{
                   ...btnStyle,
                   backgroundColor: '#555',
@@ -1732,8 +2028,10 @@ export default function App() {
               <div style={{fontSize: '1rem', fontWeight: 'bold', marginBottom: '10px'}}>
                 무역 가능한 아이템을 클릭하세요
               </div>
-              <div style={{fontSize: '0.9rem', color: '#aaa'}}>
-                {isTradeMode === 'inland' ? '내륙 무역 코인으로 교환됩니다' : '해상 무역 코인으로 교환됩니다'}
+              <div style={{fontSize: '0.8rem', color: '#aaa'}}>
+                {isTradeMode === 'inland'
+                  ? '3T 희귀+ → 0강: 1코인, 3강+: 2코인'
+                  : '4T 희귀+ → 0강: 1코인, 3강+: 2코인 | 5T 희귀+ → 0강: 3코인, 3강+: 5코인'}
               </div>
             </div>
 
@@ -1741,43 +2039,46 @@ export default function App() {
             <div style={{marginBottom: '20px', maxHeight: '400px', overflowY: 'auto', border: '1px solid #333', borderRadius: '5px', padding: '10px', backgroundColor: '#1a1a1a'}}>
               {inventory
                 .filter(item => {
-                  if (isTradeMode === 'inland') return (item.inlandTradeValue || 0) > 0;
-                  if (isTradeMode === 'sea') return (item.seaTradeValue || 0) > 0;
+                  if (isTradeMode === 'inland') return getInlandTradeValue(item) > 0;
+                  if (isTradeMode === 'sea') return getSeaTradeValue(item) > 0;
                   return false;
                 })
-                .map(item => (
-                  <div
-                    key={item.id}
-                    onClick={() => handleTrade(item)}
-                    style={{
-                      ...itemCard,
-                      backgroundColor: getGradeColor(item.grade),
-                      cursor: 'pointer',
-                      marginBottom: '8px',
-                      padding: '12px',
-                      border: `1px solid ${isTradeMode === 'inland' ? '#ff6b00' : '#1e88e5'}`
-                    }}
-                  >
-                    <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
-                      <div>
-                        <div style={{fontSize: '0.9rem', fontWeight: 'bold'}}>
-                          {item.skill === 'SR' && <span style={{color: '#ff6b00'}}>⭐ </span>}
-                          {item.name} {item.enhance > 0 ? `+${item.enhance}` : ''}
+                .map(item => {
+                  const coinValue = isTradeMode === 'inland' ? getInlandTradeValue(item) : getSeaTradeValue(item);
+                  return (
+                    <div
+                      key={item.id}
+                      onClick={() => handleTrade(item)}
+                      style={{
+                        ...itemCard,
+                        backgroundColor: getGradeColor(item.grade),
+                        cursor: 'pointer',
+                        marginBottom: '8px',
+                        padding: '12px',
+                        border: `1px solid ${isTradeMode === 'inland' ? '#ff6b00' : '#1e88e5'}`
+                      }}
+                    >
+                      <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+                        <div>
+                          <div style={{fontSize: '0.9rem', fontWeight: 'bold'}}>
+                            {item.skill === 'SR' && <span style={{color: '#ff6b00'}}>⭐ </span>}
+                            {item.name} {item.enhance > 0 ? `+${item.enhance}` : ''}
+                          </div>
+                          <div style={{fontSize: '0.75rem', color: '#aaa'}}>
+                            등급: {item.grade} | 공격: {item.attack} | 공속: +{item.attackSpeed} | 스킬: {item.skill}
+                          </div>
                         </div>
-                        <div style={{fontSize: '0.75rem', color: '#aaa'}}>
-                          등급: {item.grade} | 공격: {item.attack} | 공속: +{item.attackSpeed} | 스킬: {item.skill}
+                        <div style={{fontSize: '0.95rem', fontWeight: 'bold', color: isTradeMode === 'inland' ? '#ff6b00' : '#1e88e5'}}>
+                          +{coinValue} 코인
                         </div>
-                      </div>
-                      <div style={{fontSize: '0.95rem', fontWeight: 'bold', color: isTradeMode === 'inland' ? '#ff6b00' : '#1e88e5'}}>
-                        +{isTradeMode === 'inland' ? item.inlandTradeValue : item.seaTradeValue} 코인
                       </div>
                     </div>
-                  </div>
-                ))
+                  );
+                })
               }
               {inventory.filter(item => {
-                if (isTradeMode === 'inland') return (item.inlandTradeValue || 0) > 0;
-                if (isTradeMode === 'sea') return (item.seaTradeValue || 0) > 0;
+                if (isTradeMode === 'inland') return getInlandTradeValue(item) > 0;
+                if (isTradeMode === 'sea') return getSeaTradeValue(item) > 0;
                 return false;
               }).length === 0 && (
                 <div style={{padding: '30px', textAlign: 'center', color: '#666'}}>
