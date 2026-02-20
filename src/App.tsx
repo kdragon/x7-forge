@@ -10,7 +10,7 @@ interface Item {
   tier: number;
   grade: '일반' | '고급' | '희귀' | '고대' | '영웅' | '유일' | '유물';
   attack: number;      // 공격력
-  attackSpeed: number; // 공속
+  bonusAttack: number; // 추가 공격력
   skill: 'R' | 'SR';   // 스킬 변조
   slots: number;       // 세공 슬롯
   enhance: number;     // 강화 수치
@@ -97,10 +97,19 @@ export default function App() {
 
   // --- 공통 로직: 공격력 계산 (티어 고정값 + 등급 보너스 + 강화 보너스) ---
   const calculateAttack = (tier: number, grade: string, enhance: number) => {
-    const base = tier * 100;
+    const baseByTier: Record<number, number> = {1: 60, 2: 80, 3: 120, 4: 180, 5: 260, 6: 360, 7: 480};
+    const base = baseByTier[tier] || tier * 100;
     const gradeBonus = grade === '고급' ? 10 : grade === '희귀' ? 20 : 0;
     const enhanceBonus = enhance * 10;
     return base + gradeBonus + enhanceBonus;
+  };
+
+  const rollBonusAttack = (tier: number) => {
+    const ranges: Record<number, [number, number]> = {
+      1: [3, 6], 2: [4, 8], 3: [6, 12], 4: [9, 18], 5: [13, 26], 6: [18, 36], 7: [24, 48]
+    };
+    const [min, max] = ranges[tier] || [3, 6];
+    return Math.floor(Math.random() * (max - min + 1)) + min;
   };
 
   // --- 철광석 헬퍼 함수 ---
@@ -151,7 +160,7 @@ export default function App() {
           tier,
           grade: '일반' as const,
           attack: 0,
-          attackSpeed: 0,
+          bonusAttack: 0,
           skill: 'R' as const,
           slots: 0,
           enhance: 0,
@@ -257,8 +266,12 @@ export default function App() {
     }
 
     if (minGrade === '고급') {
-      // 3T 제작: 고급 이상
-      if (maxGrade === '희귀') {
+      // 3T, 4T 제작: 고급 이상
+      if (maxGrade === '고대') {
+        if (roll < heroRate) return '고대';
+        if (roll < heroRate + rareRate) return '희귀';
+        return '고급';
+      } else if (maxGrade === '희귀') {
         if (roll < rareRate) return '희귀';
         return '고급';
       }
@@ -307,7 +320,6 @@ export default function App() {
     // 티어별 최대 등급을 고려하여 등급 결정
     const maxGrade = getMaxGradeForTier(tier);
     const grade = determineGrade(dropRates.rare, dropRates.high, dropRates.hero, maxGrade) as Item['grade'];
-    const attackSpeed = tier === 1 ? 10 : tier === 2 ? Math.floor(Math.random() * 6) + 10 : Math.floor(Math.random() * 6) + 15; // 1T: 10, 2T: 10~15, 3T: 15~20
     const isSR = tier >= 3 && Math.random() < (dropRates.sr / 100); // 3T 이후부터 SR 확률 적용
 
     const newItem: Item = {
@@ -316,7 +328,7 @@ export default function App() {
       tier,
       grade,
       attack: calculateAttack(tier, grade, 0),
-      attackSpeed,
+      bonusAttack: rollBonusAttack(tier),
       skill: isSR ? 'SR' : 'R',
       slots: 0,
       enhance: 0
@@ -347,7 +359,7 @@ export default function App() {
         tier: 1,
         grade,
         attack: calculateAttack(1, grade, 0),
-        attackSpeed: 10,
+        bonusAttack: rollBonusAttack(1),
         skill: isSR ? 'SR' : 'R',
         slots: 0,
         enhance: 0
@@ -357,199 +369,141 @@ export default function App() {
       return;
     }
     else if (tier === 2) {
-      const t1Normal = inventory.find(i => i.tier === 1 && i.name.includes('제작') && !i.isStackable);
-      const t1Drop = inventory.find(i => i.tier === 1 && i.name.includes('드랍') && !i.isStackable);
-      if (!t1Normal || !t1Drop || getOreCount(2) < 10) {
-        alert("재료 부족! (1T 제작1 + 1T 드랍1 + 2T 철광석 10)");
+
+      if (getOreCount(2) < 10) {
+        alert("재료 부족! (2T 철광석 10)");
         return;
       }
       if (!consumeOre(2, 10)) return;
 
-      // 소모된 재료 통계 업데이트
-      setConsumedItems(prev => ({ ...prev, '1T제작': prev['1T제작'] + 1, '1T드랍': prev['1T드랍'] + 1 }));
-
       const grade = determineGrade(craftRates.rare, craftRates.high, craftRates.hero, getMaxGradeForTier(2)) as Item['grade'];
       const isSR = Math.random() < (craftRates.sr / 100); // SR 확률 적용
-      setInventory(prev => {
-        const remaining = [...prev];
-        remaining.splice(prev.indexOf(t1Normal), 1);
-        remaining.splice(remaining.indexOf(t1Drop), 1);
-        return [...remaining, {
-          id: Date.now(),
-          name: '2T 제작템',
-          tier: 2,
-          grade,
-          attack: calculateAttack(2, grade, 0),
-          attackSpeed: Math.floor(Math.random() * 6) + 10,
-          skill: isSR ? 'SR' : 'R',
-          slots: 0,
-          enhance: 0
-        }];
-      });
+      setInventory(prev => [...prev, {
+        id: Date.now(),
+        name: '2T 제작템',
+        tier: 2,
+        grade,
+        attack: calculateAttack(2, grade, 0),
+        bonusAttack: rollBonusAttack(2),
+        skill: isSR ? 'SR' : 'R',
+        slots: 0,
+        enhance: 0
+      }]);
       addLog(`[제작] 2T ${grade}${isSR ? ' SR' : ''} 획득`);
       return;
     }
     else if (tier === 3) {
-      const t2DropHigh = inventory.find(i => i.tier === 2 && i.grade === '고급' && i.name.includes('드랍') && !i.isStackable);
-      const t2CraftHigh = inventory.find(i => i.tier === 2 && i.grade === '고급' && i.name.includes('제작') && !i.isStackable);
-      if (!t2DropHigh || !t2CraftHigh || getOreCount(3) < 10) {
-        alert("재료 부족! (2T 드랍 고급1 + 2T 제작 고급1 + 3T 철광석 10)");
+      if (getOreCount(3) < 10) {
+        alert("재료 부족! (3T 철광석 10)");
         return;
       }
       if (!consumeOre(3, 10)) return;
 
-      // 소모된 재료 통계 업데이트
-      setConsumedItems(prev => ({ ...prev, '2T제작': prev['2T제작'] + 1, '2T드랍': prev['2T드랍'] + 1 }));
-
-      // 3T 제작은 고급 재료를 사용하므로 최소 등급이 고급
       const grade = determineGrade(craftRates.rare, craftRates.high, craftRates.hero, getMaxGradeForTier(3), '고급') as Item['grade'];
       const isSR = Math.random() < (craftRates.sr / 100); // SR 확률 적용
-      setInventory(prev => {
-        const remaining = [...prev];
-        remaining.splice(prev.indexOf(t2DropHigh), 1);
-        remaining.splice(remaining.indexOf(t2CraftHigh), 1);
-        return [...remaining, {
-          id: Date.now(),
-          name: '3T 제작템',
-          tier: 3,
-          grade,
-          attack: calculateAttack(3, grade, 0),
-          attackSpeed: Math.floor(Math.random() * 6) + 15,
-          skill: isSR ? 'SR' : 'R',
-          slots: 0,
-          enhance: 0
-        }];
-      });
+      setInventory(prev => [...prev, {
+        id: Date.now(),
+        name: '3T 제작템',
+        tier: 3,
+        grade,
+        attack: calculateAttack(3, grade, 0),
+        bonusAttack: rollBonusAttack(3),
+        skill: isSR ? 'SR' : 'R',
+        slots: 0,
+        enhance: 0
+      }]);
       addLog(`[제작] 3T ${grade}${isSR ? ' SR' : ''} 획득`);
       return;
     }
     else if (tier === 4) {
-      // 4T: 3T드희1 + 4T철10 + 내륙무역코인1
-      const t3DropRare = inventory.find(i => i.tier === 3 && i.grade === '희귀' && i.name.includes('드랍') && !i.isStackable);
-      if (!t3DropRare || getOreCount(4) < 10 || inlandTradeCoins < 1) {
-        alert("재료 부족! (3T 드랍 희귀1 + 4T 철광석 10 + 내륙무역코인 1)");
+      if (getOreCount(4) < 10) {
+        alert("재료 부족! (4T 철광석 10)");
         return;
       }
       if (!consumeOre(4, 10)) return;
-      setInlandTradeCoins(prev => prev - 1);
 
-      setConsumedItems(prev => ({ ...prev, '3T드랍': prev['3T드랍'] + 1 }));
-
-      const grade = determineGrade(craftRates.rare, craftRates.high, craftRates.hero, getMaxGradeForTier(4), '희귀') as Item['grade'];
+      const grade = determineGrade(craftRates.rare, craftRates.high, craftRates.hero, getMaxGradeForTier(4), '고급') as Item['grade'];
       const isSR = Math.random() < (craftRates.sr / 100);
-      setInventory(prev => {
-        const remaining = [...prev];
-        remaining.splice(prev.indexOf(t3DropRare), 1);
-        return [...remaining, {
-          id: Date.now(),
-          name: '4T 제작템',
-          tier: 4,
-          grade,
-          attack: calculateAttack(4, grade, 0),
-          attackSpeed: Math.floor(Math.random() * 6) + 20,
-          skill: isSR ? 'SR' : 'R',
-          slots: 0,
-          enhance: 0
-        }];
-      });
+      setInventory(prev => [...prev, {
+        id: Date.now(),
+        name: '4T 제작템',
+        tier: 4,
+        grade,
+        attack: calculateAttack(4, grade, 0),
+        bonusAttack: rollBonusAttack(4),
+        skill: isSR ? 'SR' : 'R',
+        slots: 0,
+        enhance: 0
+      }]);
       addLog(`[제작] 4T ${grade}${isSR ? ' SR' : ''} 획득`);
       return;
     }
     else if (tier === 5) {
-      // 5T: 4T드희1 + 4T제희1 + 5T철10
-      const t4DropRare = inventory.find(i => i.tier === 4 && i.grade === '희귀' && i.name.includes('드랍') && !i.isStackable);
-      const t4CraftRare = inventory.find(i => i.tier === 4 && i.grade === '희귀' && i.name.includes('제작') && !i.isStackable);
-      if (!t4DropRare || !t4CraftRare || getOreCount(5) < 10) {
-        alert("재료 부족! (4T 드랍 희귀1 + 4T 제작 희귀1 + 5T 철광석 10)");
+      if (getOreCount(5) < 10) {
+        alert("재료 부족! (5T 철광석 10)");
         return;
       }
       if (!consumeOre(5, 10)) return;
 
-      setConsumedItems(prev => ({ ...prev, '4T드랍': prev['4T드랍'] + 1, '4T제작': prev['4T제작'] + 1 }));
-
       const grade = determineGrade(craftRates.rare, craftRates.high, craftRates.hero, getMaxGradeForTier(5), '희귀') as Item['grade'];
       const isSR = Math.random() < (craftRates.sr / 100);
-      setInventory(prev => {
-        const remaining = [...prev];
-        remaining.splice(prev.indexOf(t4DropRare), 1);
-        remaining.splice(remaining.indexOf(t4CraftRare), 1);
-        return [...remaining, {
-          id: Date.now(),
-          name: '5T 제작템',
-          tier: 5,
-          grade,
-          attack: calculateAttack(5, grade, 0),
-          attackSpeed: Math.floor(Math.random() * 6) + 25,
-          skill: isSR ? 'SR' : 'R',
-          slots: 0,
-          enhance: 0
-        }];
-      });
+      setInventory(prev => [...prev, {
+        id: Date.now(),
+        name: '5T 제작템',
+        tier: 5,
+        grade,
+        attack: calculateAttack(5, grade, 0),
+        bonusAttack: rollBonusAttack(5),
+        skill: isSR ? 'SR' : 'R',
+        slots: 0,
+        enhance: 0
+      }]);
       addLog(`[제작] 5T ${grade}${isSR ? ' SR' : ''} 획득`);
       return;
     }
     else if (tier === 6) {
-      // 6T: 5T드고1 + 6T철10 + 해상무역코인1
-      const t5DropAncient = inventory.find(i => i.tier === 5 && i.grade === '고대' && i.name.includes('드랍') && !i.isStackable);
-      if (!t5DropAncient || getOreCount(6) < 10 || seaTradeCoins < 1) {
-        alert("재료 부족! (5T 드랍 고대1 + 6T 철광석 10 + 해상무역코인 1)");
+      if (getOreCount(6) < 10) {
+        alert("재료 부족! (6T 철광석 10)");
         return;
       }
       if (!consumeOre(6, 10)) return;
-      setSeaTradeCoins(prev => prev - 1);
 
-      setConsumedItems(prev => ({ ...prev, '5T드랍': prev['5T드랍'] + 1 }));
-
-      const grade = determineGrade(craftRates.rare, craftRates.high, craftRates.hero, getMaxGradeForTier(6), '고대') as Item['grade'];
+      const grade = determineGrade(craftRates.rare, craftRates.high, craftRates.hero, getMaxGradeForTier(6), '희귀') as Item['grade'];
       const isSR = Math.random() < (craftRates.sr / 100);
-      setInventory(prev => {
-        const remaining = [...prev];
-        remaining.splice(prev.indexOf(t5DropAncient), 1);
-        return [...remaining, {
-          id: Date.now(),
-          name: '6T 제작템',
-          tier: 6,
-          grade,
-          attack: calculateAttack(6, grade, 0),
-          attackSpeed: Math.floor(Math.random() * 6) + 30,
-          skill: isSR ? 'SR' : 'R',
-          slots: 0,
-          enhance: 0
-        }];
-      });
+      setInventory(prev => [...prev, {
+        id: Date.now(),
+        name: '6T 제작템',
+        tier: 6,
+        grade,
+        attack: calculateAttack(6, grade, 0),
+        bonusAttack: rollBonusAttack(6),
+        skill: isSR ? 'SR' : 'R',
+        slots: 0,
+        enhance: 0
+      }]);
       addLog(`[제작] 6T ${grade}${isSR ? ' SR' : ''} 획득`);
       return;
     }
     else if (tier === 7) {
-      // 7T: 6T드고1 + 6T제고1 + 7T철10
-      const t6DropAncient = inventory.find(i => i.tier === 6 && i.grade === '고대' && i.name.includes('드랍') && !i.isStackable);
-      const t6CraftAncient = inventory.find(i => i.tier === 6 && i.grade === '고대' && i.name.includes('제작') && !i.isStackable);
-      if (!t6DropAncient || !t6CraftAncient || getOreCount(7) < 10) {
-        alert("재료 부족! (6T 드랍 고대1 + 6T 제작 고대1 + 7T 철광석 10)");
+      if (getOreCount(7) < 10) {
+        alert("재료 부족! (7T 철광석 10)");
         return;
       }
       if (!consumeOre(7, 10)) return;
 
-      setConsumedItems(prev => ({ ...prev, '6T드랍': prev['6T드랍'] + 1, '6T제작': prev['6T제작'] + 1 }));
-
       const grade = determineGrade(craftRates.rare, craftRates.high, craftRates.hero, getMaxGradeForTier(7), '고대') as Item['grade'];
       const isSR = Math.random() < (craftRates.sr / 100);
-      setInventory(prev => {
-        const remaining = [...prev];
-        remaining.splice(prev.indexOf(t6DropAncient), 1);
-        remaining.splice(remaining.indexOf(t6CraftAncient), 1);
-        return [...remaining, {
-          id: Date.now(),
-          name: '7T 제작템',
-          tier: 7,
-          grade,
-          attack: calculateAttack(7, grade, 0),
-          attackSpeed: Math.floor(Math.random() * 6) + 35,
-          skill: isSR ? 'SR' : 'R',
-          slots: 0,
-          enhance: 0
-        }];
-      });
+      setInventory(prev => [...prev, {
+        id: Date.now(),
+        name: '7T 제작템',
+        tier: 7,
+        grade,
+        attack: calculateAttack(7, grade, 0),
+        bonusAttack: rollBonusAttack(7),
+        skill: isSR ? 'SR' : 'R',
+        slots: 0,
+        enhance: 0
+      }]);
       addLog(`[제작] 7T ${grade}${isSR ? ' SR' : ''} 획득`);
       return;
     }
@@ -754,74 +708,19 @@ export default function App() {
     }
   };
 
-  // --- 등급별 승급 배율 보너스 (소수점 내림) ---
-  const GRADE_MULTIPLIER_BONUS: Record<string, number> = {
-    '고급': 1.10,    // 10%
-    '희귀': 1.20,    // 20%
-    '고대': 1.30,    // 30%
-    '영웅': 1.50,    // 50%
-    '유일': 2.00,    // 100%
-    '유물': 3.00     // 200%
-  };
-
-  // --- 분해 로직 (범위 기반) ---
+  // --- 분해 로직 (등급 기반 범위) ---
   const getDisassembleStones = (tier: number, grade?: string): { type: 'low' | 'mid' | 'high'; amount: number; label: string } => {
-    // 기본 범위 (등급 보너스 미적용)
-    let baseMin: number, baseMax: number;
-    let stoneType: 'low' | 'mid' | 'high';
+    // 티어별 숯돌 종류: 1-2T=하급, 3-4T=중급, 5-7T=상급
+    const stoneType: 'low' | 'mid' | 'high' = tier <= 2 ? 'low' : tier <= 4 ? 'mid' : 'high';
 
-    switch (tier) {
-      case 1:
-        baseMin = 3;
-        baseMax = 5;
-        stoneType = 'low';
-        break;
-      case 2:
-        baseMin = 8;
-        baseMax = 10;
-        stoneType = 'low';
-        break;
-      case 3:
-        baseMin = 8;
-        baseMax = 10;
-        stoneType = 'mid';
-        break;
-      case 4:
-        baseMin = 13;
-        baseMax = 15;
-        stoneType = 'mid';
-        break;
-      case 5:
-        baseMin = 8;
-        baseMax = 10;
-        stoneType = 'high';
-        break;
-      case 6:
-        baseMin = 13;
-        baseMax = 15;
-        stoneType = 'high';
-        break;
-      case 7:
-        baseMin = 18;
-        baseMax = 20;
-        stoneType = 'high';
-        break;
-      default:
-        return { type: 'low', amount: 0, label: '' };
-    }
+    // 등급별 분해 획득 범위
+    const gradeRanges: Record<string, [number, number]> = {
+      '일반': [2, 4], '고급': [4, 8], '희귀': [20, 40], '고대': [100, 200],
+      '영웅': [500, 1000], '유일': [2500, 5000], '유물': [12500, 20000]
+    };
 
-    // 등급 배율 보너스 적용
-    let finalMin = baseMin;
-    let finalMax = baseMax;
-
-    if (grade && GRADE_MULTIPLIER_BONUS[grade]) {
-      const multiplier = GRADE_MULTIPLIER_BONUS[grade];
-      finalMin = Math.floor(baseMin * multiplier);
-      finalMax = Math.floor(baseMax * multiplier);
-    }
-
-    // 범위 내 랜덤 값 선택
-    const amount = Math.floor(Math.random() * (finalMax - finalMin + 1)) + finalMin;
+    const [min, max] = gradeRanges[grade || '일반'] || [2, 4];
+    const amount = Math.floor(Math.random() * (max - min + 1)) + min;
     const stoneTypeLabel = stoneType === 'low' ? '하급숯돌' : stoneType === 'mid' ? '중급숯돌' : '상급숯돌';
 
     return { type: stoneType, amount, label: `${stoneTypeLabel} ${amount}` };
@@ -896,29 +795,13 @@ export default function App() {
     const stoneType: 'low' | 'mid' | 'high' = tier <= 2 ? 'low' : tier <= 4 ? 'mid' : 'high';
     const stoneLabel = stoneType === 'low' ? '하급 숯돌' : stoneType === 'mid' ? '중급 숯돌' : '상급 숯돌';
 
-    // 등급별 필요 수량 (경험치 테이블 기반)
-    // 경험치 50 = 숯돌 50개
-    switch (grade) {
-      case '일반':
-        return { type: stoneType, amount: 10, label: `${stoneLabel} 10` };
-      case '고급':
-        // 고급 -> 희귀 에 필요한 경험치: 50
-        return { type: stoneType, amount: 50, label: `${stoneLabel} 50` };
-      case '희귀':
-        // 희귀 -> 고대 에 필요한 경험치: 100
-        return { type: stoneType, amount: 100, label: `${stoneLabel} 100` };
-      case '고대':
-        // 고대 -> 영웅 에 필요한 경험치: 150
-        return { type: stoneType, amount: 150, label: `${stoneLabel} 150` };
-      case '영웅':
-        // 영웅 -> 유일 에 필요한 경험치: 200
-        return { type: stoneType, amount: 200, label: `${stoneLabel} 200` };
-      case '유일':
-        // 유일 -> 유물 에 필요한 경험치: 300
-        return { type: stoneType, amount: 300, label: `${stoneLabel} 300` };
-      default:
-        return null;
-    }
+    // 등급별 필요 수량
+    const upgradeCosts: Record<string, number> = {
+      '일반': 10, '고급': 20, '희귀': 100, '고대': 500, '영웅': 2500, '유일': 12500
+    };
+    const amount = upgradeCosts[grade];
+    if (amount === undefined) return null;
+    return { type: stoneType, amount, label: `${stoneLabel} ${amount}` };
   };
 
   const getNextGrade = (grade: string): Item['grade'] | null => {
@@ -1288,9 +1171,9 @@ export default function App() {
             <div style={{flex: 2, display: 'flex', flexDirection: 'column', gap: '4px'}}>
               <div style={{fontSize: '0.75rem', color: '#aaa', fontWeight: 'bold', marginBottom: '2px'}}>🛠️ 제작</div>
               <button onClick={() => handleCraft(1)} style={actionBtn}>1T (1T철10)</button>
-              <button onClick={() => handleCraft(2)} style={actionBtn}>2T (1T제+1T드+2T철10)</button>
+              <button onClick={() => handleCraft(2)} style={actionBtn}>2T (2T철10)</button>
               <button onClick={() => handleCraft(3)} style={actionBtn}>
-                3T (2T드<span style={{color: '#66bb6a'}}>고급</span>+2T제<span style={{color: '#66bb6a'}}>고급</span>+3T철10)
+                3T (3T철10)
               </button>
             </div>
           </div>
@@ -1318,17 +1201,17 @@ export default function App() {
             <div style={{flex: 2, display: 'flex', flexDirection: 'column', gap: '4px'}}>
               <div style={{fontSize: '0.75rem', color: '#aaa', fontWeight: 'bold', marginBottom: '2px'}}>🛠️ 제작</div>
               <button onClick={() => handleCraft(4)} style={actionBtn}>
-                4T (3T드<span style={{color: '#42a5f5'}}>희귀</span>+4T철10+내륙코인1)
+                4T (4T철10)
               </button>
               <button onClick={() => handleCraft(5)} style={actionBtn}>
-                5T (4T드<span style={{color: '#42a5f5'}}>희귀</span>+4T제<span style={{color: '#42a5f5'}}>희귀</span>+5T철10)
+                5T (5T철10)
               </button>
               <div style={{borderTop: '1px solid #555', margin: '2px 0'}}/>
               <button onClick={() => handleCraft(6)} style={actionBtn}>
-                6T (5T드<span style={{color: '#ba68c8'}}>고대</span>+6T철10+해상코인1)
+                6T (6T철10)
               </button>
               <button onClick={() => handleCraft(7)} style={actionBtn}>
-                7T (6T드<span style={{color: '#ba68c8'}}>고대</span>+6T제<span style={{color: '#ba68c8'}}>고대</span>+7T철10)
+                7T (7T철10)
               </button>
             </div>
           </div>
@@ -1441,7 +1324,7 @@ export default function App() {
                 ) : (
                   <>
                     <div style={infoText}>공 : {item.attack}</div>
-                    <div style={infoText}>공속 : +{item.attackSpeed}</div>
+                    <div style={infoText}>추가공격력: +{item.bonusAttack}</div>
                     <div style={{...infoText, color: item.skill === 'SR' ? '#ff6b00' : '#64b5f6', fontWeight: item.skill === 'SR' ? 'bold' : 'normal'}}>스킬 : {item.skill}</div>
                     {item.slots > 0 && <div style={{...infoText, color: '#ce93d8'}}>세공 : {item.slots}칸</div>}
                     <div style={{...infoText, color: '#ffd700'}}>({item.grade})</div>
@@ -1465,71 +1348,35 @@ export default function App() {
           <div style={{marginTop: '20px', padding: '20px', backgroundColor: '#1a1a1a', borderRadius: '8px', border: '1px solid #333'}}>
             <h4 style={{margin: '0 0 15px 0', color: '#64b5f6'}}>📊 승급 시스템 안내</h4>
             <div style={{fontSize: '0.75rem', color: '#aaa', marginBottom: '15px', fontStyle: 'italic'}}>
-              * 경험치 시스템: 각 등급 승급 시 해당 경험치만큼의 숯돌이 필요합니다 (경험치 = 숯돌 개수)<br/>
-              * 등급 배율 보너스: 높은 등급의 아이템 분해 시 더 많은 숯돌을 획득합니다 (소수점 내림)
+              * 승급 시 해당 등급에 맞는 숯돌이 필요합니다 (티어별 숯돌 종류: 1-2T 하급, 3-4T 중급, 5-7T 상급)<br/>
+              * 분해 시 아이템 등급에 따라 숯돌을 획득합니다
             </div>
-            
-            {/* 승급 경험치 테이블 */}
+
+            {/* 승급 필요 숯돌 테이블 */}
             <div style={{marginBottom: '20px'}}>
-              <div style={{fontSize: '0.9rem', fontWeight: 'bold', marginBottom: '10px', color: '#ffb74d'}}>🔼 승급 필요 경험치 (숯돌)</div>
+              <div style={{fontSize: '0.9rem', fontWeight: 'bold', marginBottom: '10px', color: '#ffb74d'}}>🔼 승급 필요 숯돌</div>
               <div style={{display: 'flex', flexDirection: 'column', gap: '5px', paddingLeft: '10px'}}>
-                <div style={{fontSize: '0.8rem'}}>
-                  • 일반 → 고급: 10 EXP = 하급 숯돌 10개
-                </div>
-                <div style={{fontSize: '0.8rem'}}>
-                  • 고급 → 희귀: 50 EXP = 하급/중급/상급 숯돌 50개 (티어별)
-                </div>
-                <div style={{fontSize: '0.8rem'}}>
-                  • 희귀 → 고대: 100 EXP = 중급/상급 숯돌 100개 (티어별)
-                </div>
-                <div style={{fontSize: '0.8rem'}}>
-                  • 고대 → 영웅: 150 EXP = 중급/상급 숯돌 150개 (티어별)
-                </div>
-                <div style={{fontSize: '0.8rem'}}>
-                  • 영웅 → 유일: 200 EXP = 상급 숯돌 200개
-                </div>
-                <div style={{fontSize: '0.8rem'}}>
-                  • 유일 → 유물: 300 EXP = 상급 숯돌 300개
-                </div>
+                <div style={{fontSize: '0.8rem'}}>• 일반 → 고급: 숯돌 10개</div>
+                <div style={{fontSize: '0.8rem'}}>• 고급 → 희귀: 숯돌 20개</div>
+                <div style={{fontSize: '0.8rem'}}>• 희귀 → 고대: 숯돌 100개</div>
+                <div style={{fontSize: '0.8rem'}}>• 고대 → 영웅: 숯돌 500개</div>
+                <div style={{fontSize: '0.8rem'}}>• 영웅 → 유일: 숯돌 2,500개</div>
+                <div style={{fontSize: '0.8rem'}}>• 유일 → 유물: 숯돌 12,500개</div>
               </div>
             </div>
-            
-            {/* 등급별 배율 보너스 */}
-            <div style={{marginBottom: '20px'}}>
-              <div style={{fontSize: '0.9rem', fontWeight: 'bold', marginBottom: '10px', color: '#81c784'}}>⭐ 등급 배율 보너스</div>
-              <div style={{display: 'flex', flexDirection: 'column', gap: '5px', paddingLeft: '10px'}}>
-                <div style={{fontSize: '0.8rem'}}>
-                  • 고급 등급: 기본값 × 1.10 (+10%)
-                </div>
-                <div style={{fontSize: '0.8rem'}}>
-                  • 희귀 등급: 기본값 × 1.20 (+20%)
-                </div>
-                <div style={{fontSize: '0.8rem'}}>
-                  • 고대 등급: 기본값 × 1.30 (+30%)
-                </div>
-                <div style={{fontSize: '0.8rem'}}>
-                  • 영웅 등급: 기본값 × 1.50 (+50%)
-                </div>
-                <div style={{fontSize: '0.8rem'}}>
-                  • 유일 등급: 기본값 × 2.00 (+100%)
-                </div>
-                <div style={{fontSize: '0.8rem'}}>
-                  • 유물 등급: 기본값 × 3.00 (+200%)
-                </div>
-              </div>
-            </div>
-            
+
             {/* 분해 시 획득 숯돌 */}
             <div style={{marginBottom: '20px', padding: '10px', backgroundColor: '#2a2a2a', borderRadius: '4px'}}>
-              <div style={{fontSize: '0.9rem', fontWeight: 'bold', marginBottom: '10px', color: '#90caf9'}}>🔨 분해 시 획득 숯돌 (범위 기본값)</div>
+              <div style={{fontSize: '0.9rem', fontWeight: 'bold', marginBottom: '10px', color: '#90caf9'}}>🔨 분해 시 획득 숯돌 (등급별)</div>
               <div style={{display: 'flex', flexDirection: 'column', gap: '5px', paddingLeft: '10px', fontSize: '0.8rem'}}>
-                <div>• 1 Tier: 하급 숯돌 3~5개</div>
-                <div>• 2 Tier: 하급 숯돌 8~10개</div>
-                <div>• 3 Tier: 중급 숯돌 8~10개</div>
-                <div>• 4 Tier: 중급 숯돌 13~15개</div>
-                <div>• 5 Tier: 상급 숯돌 8~10개</div>
-                <div>• 6 Tier: 상급 숯돌 13~15개</div>
-                <div>• 7 Tier: 상급 숯돌 18~20개</div>
+                <div>• 일반: 2~4개</div>
+                <div>• 고급: 4~8개</div>
+                <div>• 희귀: 20~40개</div>
+                <div>• 고대: 100~200개</div>
+                <div>• 영웅: 500~1,000개</div>
+                <div>• 유일: 2,500~5,000개</div>
+                <div>• 유물: 12,500~20,000개</div>
+                <div style={{color: '#aaa', marginTop: '5px'}}>* 숯돌 종류는 티어에 따라 결정 (1-2T 하급, 3-4T 중급, 5-7T 상급)</div>
               </div>
             </div>
 
@@ -1584,7 +1431,7 @@ export default function App() {
                 )}
               </div>
               <div style={infoText}>공격력: {selectedItem.attack}</div>
-              <div style={infoText}>공속: +{selectedItem.attackSpeed}</div>
+              <div style={infoText}>추가공격력: +{selectedItem.bonusAttack}</div>
               <div style={{...infoText, color: selectedItem.skill === 'SR' ? '#ff6b00' : '#64b5f6', fontWeight: selectedItem.skill === 'SR' ? 'bold' : 'normal'}}>스킬: {selectedItem.skill}</div>
               {selectedItem.slots > 0 && <div style={{...infoText, color: '#ce93d8'}}>세공: {selectedItem.slots}칸</div>}
               <div style={infoText}>강화: +{selectedItem.enhance}</div>
@@ -1634,7 +1481,7 @@ export default function App() {
                 )}
               </div>
               <div style={infoText}>공격력: {selectedItem.attack}</div>
-              <div style={infoText}>공속: +{selectedItem.attackSpeed}</div>
+              <div style={infoText}>추가공격력: +{selectedItem.bonusAttack}</div>
               <div style={{...infoText, color: selectedItem.skill === 'SR' ? '#ff6b00' : '#64b5f6', fontWeight: selectedItem.skill === 'SR' ? 'bold' : 'normal'}}>스킬: {selectedItem.skill}</div>
               <div style={{...infoText, color: '#ff6b00', fontWeight: 'bold', fontSize: '0.9rem', marginTop: '5px'}}>현재 강화: +{selectedItem.enhance}강</div>
               <div style={{...infoText, color: '#ffd700', marginTop: '5px'}}>등급: {selectedItem.grade}</div>
@@ -1730,7 +1577,7 @@ export default function App() {
                   )}
                 </div>
                 <div style={infoText}>공격력: {deleteConfirmItem.attack}</div>
-                <div style={infoText}>공속: +{deleteConfirmItem.attackSpeed}</div>
+                <div style={infoText}>추가공격력: +{deleteConfirmItem.bonusAttack}</div>
                 <div style={{...infoText, color: deleteConfirmItem.skill === 'SR' ? '#ff6b00' : '#64b5f6', fontWeight: deleteConfirmItem.skill === 'SR' ? 'bold' : 'normal'}}>스킬: {deleteConfirmItem.skill}</div>
                 <div style={{ ...infoText, color: '#ffd700' }}>등급: {deleteConfirmItem.grade}</div>
               </div>
@@ -1777,7 +1624,7 @@ export default function App() {
             {/* 선택된 아이템 정보 */}
             <div style={{...itemCard, backgroundColor: getGradeColor(selectedItem.grade), marginBottom: '20px'}}>
               <div style={{fontSize: '0.95rem', fontWeight: 'bold', marginBottom: '8px'}}>{selectedItem.name}</div>
-              <div style={infoText}>공격력: {selectedItem.attack} | 공속: +{selectedItem.attackSpeed} | 스킬: {selectedItem.skill}</div>
+              <div style={infoText}>공격력: {selectedItem.attack} | 추가공격력: +{selectedItem.bonusAttack} | 스킬: {selectedItem.skill}</div>
               <div style={infoText}>{selectedItem.slots > 0 ? `세공: ${selectedItem.slots}칸 | ` : ''}강화: +{selectedItem.enhance}</div>
               <div style={{...infoText, color: '#ffd700', marginTop: '5px'}}>현재 등급: {selectedItem.grade}</div>
             </div>
@@ -1851,9 +1698,9 @@ export default function App() {
             <h3 style={{ color: '#a1887f', marginTop: 0 }}>🔨 아이템 분해</h3>
 
             <div style={{marginBottom: '15px', padding: '10px', backgroundColor: '#2a2a2a', borderRadius: '8px', fontSize: '0.8rem', color: '#aaa'}}>
-              분해 시 숯돌 획득 (범위): 1T=하급숯돌3~5 | 2T=하급숯돌8~10 | 3T=중급숯돌8~10 | 4T=중급숯돌13~15 | 5T=상급숯돌8~10 | 6T=상급숯돌13~15 | 7T=상급숯돌18~20
+              분해 시 등급별 숯돌 획득: 일반 2~4 | 고급 4~8 | 희귀 20~40 | 고대 100~200 | 영웅 500~1000 | 유일 2500~5000 | 유물 12500~20000
               <br/>
-              <span style={{color: '#ffb74d'}}>등급 배율: 고급 +10% | 희귀 +20% | 고대 +30% | 영웅 +50% | 유일 +100% | 유물 +200% (소수점 내림)</span>
+              <span style={{color: '#ffb74d'}}>숯돌 종류: 1-2T 하급 | 3-4T 중급 | 5-7T 상급</span>
             </div>
 
             {/* 선택된 아이템 요약 */}
@@ -1891,7 +1738,7 @@ export default function App() {
                             {item.name} {item.enhance > 0 ? `+${item.enhance}` : ''} ({item.grade})
                           </div>
                           <div style={{fontSize: '0.75rem', color: '#aaa'}}>
-                            공격: {item.attack} | 공속: +{item.attackSpeed}
+                            공격: {item.attack} | 추가공격력: +{item.bonusAttack}
                           </div>
                         </div>
                       </div>
@@ -1957,7 +1804,7 @@ export default function App() {
                       {item.name} {item.enhance > 0 ? `+${item.enhance}` : ''} ({item.grade})
                     </div>
                     <div style={{fontSize: '0.75rem', color: '#aaa', marginTop: '3px'}}>
-                      공격: {item.attack} | 공속: +{item.attackSpeed}
+                      공격: {item.attack} | 추가공격력: +{item.bonusAttack}
                     </div>
                   </div>
                 ))}
@@ -2065,7 +1912,7 @@ export default function App() {
                             {item.name} {item.enhance > 0 ? `+${item.enhance}` : ''}
                           </div>
                           <div style={{fontSize: '0.75rem', color: '#aaa'}}>
-                            등급: {item.grade} | 공격: {item.attack} | 공속: +{item.attackSpeed} | 스킬: {item.skill}
+                            등급: {item.grade} | 공격: {item.attack} | 추가공격력: +{item.bonusAttack} | 스킬: {item.skill}
                           </div>
                         </div>
                         <div style={{fontSize: '0.95rem', fontWeight: 'bold', color: isTradeMode === 'inland' ? '#ff6b00' : '#1e88e5'}}>
