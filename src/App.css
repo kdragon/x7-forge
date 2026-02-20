@@ -41,3 +41,14 @@
 .read-the-docs {
   color: #888;
 }
+
+@keyframes damageFloat {
+  0% {
+    opacity: 1;
+    top: -26px;
+  }
+  100% {
+    opacity: 0;
+    top: -80px;
+  }
+}

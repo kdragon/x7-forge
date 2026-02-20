@@ -1,11 +1,4 @@
-// 티어별 보호제 소모 비율 (N% 당 보호제 1개)
-const TIER_COST_RATES: Record<number, number> = {
-  3: 1.0,    // 1% 당 1개
-  4: 0.5,    // 0.5% 당 1개 (2배)
-  5: 0.25,   // 0.25% 당 1개 (4배)
-  6: 0.125,  // 0.125% 당 1개 (8배)
-  7: 0.06    // 0.06% 당 1개 (약 16.7배)
-};
+import { TIER_PROTECTION_COST_RATES } from './config/enhanceRules';
 
 export interface SimulationResult {
   tier: number;
@@ -25,7 +18,7 @@ export const simulateEnhanceCost = (
   successRates: number[], 
   pricePerItem: number = 100
 ): SimulationResult => {
-  const costUnit = TIER_COST_RATES[tier] || 1.0;
+  const costUnit = TIER_PROTECTION_COST_RATES[tier] || 1.0;
   let totalItems = 0;
   const breakdown: number[] = [];
 
