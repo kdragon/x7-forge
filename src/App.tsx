@@ -36,8 +36,6 @@ export default function App() {
 
   // 경제 모드 (BM: 보호제 모델, HARDCORE: 파괴/재료 모델)
   const [ecoMode, setEcoMode] = useState<EcoMode>('BM');
-  const [upgradeMaterials, setUpgradeMaterials] = useState(0); // HARDCORE 모드 재료
-
   // 숯돌 (분해로 획득)
   const [upgradeStones, setUpgradeStones] = useState({ low: 0, mid: 0, high: 0 }); // 하급, 중급, 상급
 
@@ -706,15 +704,15 @@ export default function App() {
           };
         });
       } else {
-        // 실패: 무조건 파괴 + 재료 반환
-        const refund = (selectedItem.tier * 10) + (selectedItem.enhance * 5);
+        // 실패: 무조건 파괴 + 숯돌 반환 (분해와 동일)
+        const stones = getDisassembleStones(selectedItem.tier, selectedItem.grade);
         const itemKey = selectedItem.name.includes('제작') ? `${selectedItem.tier}T제작` as keyof typeof consumedItems : `${selectedItem.tier}T드랍` as keyof typeof consumedItems;
         if (itemKey in consumedItems) {
           setConsumedItems(prev => ({ ...prev, [itemKey]: prev[itemKey] + 1 }));
         }
         setInventory(prev => prev.filter(item => item.id !== selectedItem.id));
-        setUpgradeMaterials(prev => prev + refund);
-        addLog(`[강화 실패] ${selectedItem.name} +${currentEnhance}강 파괴됨! 재료 +${refund} 획득`);
+        setUpgradeStones(prev => ({ ...prev, [stones.type]: prev[stones.type] + stones.amount }));
+        addLog(`[강화 실패] ${selectedItem.name} +${currentEnhance}강 파괴됨! ${stones.label} 획득`);
         setSelectedItem(null);
         setIsEnhanceMode(false);
       }
@@ -917,7 +915,6 @@ export default function App() {
       setInventory([]);
       setSelectedItem(null);
       setUsedProtectionCount(0); // 보호제 사용 통계도 초기화
-      setUpgradeMaterials(0); // HARDCORE 재료 초기화
       setUpgradeStones({ low: 0, mid: 0, high: 0 }); // 숯돌 초기화
       setConsumedItems({
         '1T제작': 0, '1T드랍': 0,
@@ -1156,11 +1153,6 @@ export default function App() {
         >
           🔥 파괴/재료 모델 (Hardcore)
         </button>
-        {ecoMode === 'HARDCORE' && (
-          <span style={{fontSize: '0.8rem', color: '#ff9800', marginLeft: '10px'}}>
-            재료: <span style={{color: '#ffd700', fontWeight: 'bold'}}>{upgradeMaterials}</span>
-          </span>
-        )}
       </div>
 
       {/* 1~3T / 4~7T 좌우 배치 */}
@@ -1534,7 +1526,7 @@ export default function App() {
                 </>
               ) : (
                 <div style={{fontSize: '0.85rem', color: '#ff9800'}}>
-                  • 실패 시 파괴 + 재료 반환: <span style={{color: '#ffd700', fontWeight: 'bold'}}>{(selectedItem.tier * 10) + (selectedItem.enhance * 5)}</span>개
+                  • 실패 시 파괴 + 숯돌 반환 (분해와 동일한 숯돌 지급)
                 </div>
               )}
             </div>
@@ -1560,7 +1552,7 @@ export default function App() {
                   style={{...btnStyle, backgroundColor: '#2e7d32', padding: '12px', fontWeight: 'bold'}}
                   onClick={() => handleEnhance(false)}
                 >
-                  🔥 강화 (실패 시 파괴 + 재료 획득)
+                  🔥 강화 (실패 시 파괴 + 숯돌 획득)
                 </button>
               )}
               <button style={{...btnStyle, backgroundColor: '#555', padding: '8px'}} onClick={() => setIsEnhanceMode(false)}>
