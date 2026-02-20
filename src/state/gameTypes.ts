@@ -49,6 +49,7 @@ export interface GameState {
   enhanceRates: number[];
   protectionPrice: number;
   usedProtectionCount: number;
+  lootDropRate: number;
   consumedItems: ConsumedItems;
 
   huntingTier: number | null;

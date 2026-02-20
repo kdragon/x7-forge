@@ -1,16 +1,21 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import type { GameState } from './gameTypes';
 import { useGameContext } from './GameContext';
 
 export const useGameActions = () => {
   const { state, dispatch } = useGameContext();
+  const stateRef = useRef(state);
+
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
 
   const setState = useCallback(
     (updater: Partial<GameState> | ((prev: GameState) => Partial<GameState>)) => {
-      const payload = typeof updater === 'function' ? updater(state) : updater;
+      const payload = typeof updater === 'function' ? updater(stateRef.current) : updater;
       dispatch({ type: 'SET_STATE', payload });
     },
-    [dispatch, state],
+    [dispatch],
   );
 
   const addLog = useCallback((message: string) => {

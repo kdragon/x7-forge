@@ -2,7 +2,7 @@ import { createContext, useContext, useMemo, useReducer } from 'react';
 import type { ReactNode } from 'react';
 import type { GameState } from './gameTypes';
 import { gameReducer } from './gameReducer';
-import { DEFAULT_CRAFT_RATES, DEFAULT_DROP_RATES } from '../config/gameDefaults';
+import { DEFAULT_CRAFT_RATES, DEFAULT_DROP_RATES, DEFAULT_LOOT_DROP_RATE } from '../config/gameDefaults';
 import { DEFAULT_ENHANCE_RATES, DEFAULT_PROTECTION_PRICE } from '../config/enhanceRules';
 
 const createInitialState = (): GameState => ({
@@ -37,6 +37,7 @@ const createInitialState = (): GameState => ({
   enhanceRates: DEFAULT_ENHANCE_RATES,
   protectionPrice: DEFAULT_PROTECTION_PRICE,
   usedProtectionCount: 0,
+  lootDropRate: DEFAULT_LOOT_DROP_RATE,
   consumedItems: {
     '1T제작': 0, '1T드랍': 0,
     '2T제작': 0, '2T드랍': 0,

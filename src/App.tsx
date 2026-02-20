@@ -56,6 +56,7 @@ export default function App() {
     enhanceRates,
     protectionPrice,
     usedProtectionCount,
+    lootDropRate,
     consumedItems,
     huntingTier,
     selectedHuntingTier,
@@ -105,6 +106,7 @@ export default function App() {
   const setEnhanceRates = (value: number[] | ((prev: number[]) => number[])) => setField('enhanceRates', value);
   const setProtectionPrice = (value: number | ((prev: number) => number)) => setField('protectionPrice', value);
   const setUsedProtectionCount = (value: number | ((prev: number) => number)) => setField('usedProtectionCount', value);
+  const setLootDropRate = (value: number | ((prev: number) => number)) => setField('lootDropRate', value);
   const setConsumedItems = (value: GameState['consumedItems'] | ((prev: GameState['consumedItems']) => GameState['consumedItems'])) => setField('consumedItems', value);
   const setHuntingTier = (value: number | null | ((prev: number | null) => number | null)) => setField('huntingTier', value);
   const setSelectedHuntingTier = (value: number | ((prev: number) => number)) => setField('selectedHuntingTier', value);
@@ -162,13 +164,11 @@ export default function App() {
 
     const { baseExp } = getMonsterBaseStats(tier);
 
-    // --- 전리품 드랍: 몬스터 처치 시 항상 1개 지급 (스택) ---
+    // --- 전리품 드랍: 몬스터 처치 시 확률 드랍 (스택) ---
     setInventory(prev => {
-      // 최대 인벤토리 체크
-
-      // 12% 확률로 전리품 드랍
-      if (Math.random() < 0.12) {
-        const lootName = `${tier}T 전리품`;
+      if (Math.random() < (lootDropRate / 100)) {
+        const lootTier = tier === 1 ? 2 : tier;
+        const lootName = `${lootTier}T 전리품`;
         const updated = prev.map(item => ({ ...item }));
         let added = false;
         for (let i = 0; i < updated.length; i++) {
@@ -182,7 +182,7 @@ export default function App() {
           updated.push({
             id: Date.now() + Math.random(),
             name: lootName,
-            tier,
+            tier: lootTier,
             grade: '일반',
             attack: 0,
             bonusAttack: 0,
@@ -193,7 +193,7 @@ export default function App() {
             isStackable: true
           });
         }
-        addLog(`[사냥] ${tier}T 몬스터 처치! (전리품 1개 획득)`);
+        addLog(`[사냥] ${tier}T 몬스터 처치! (${lootTier}T 전리품 1개 획득)`);
         return updated;
       }
       return prev;
@@ -275,8 +275,8 @@ export default function App() {
             // 처치 처리 (킬 카운트, 경험치, 레벨업)
             handleMonsterKilled(currentTier);
 
-            // 드랍 판정: 1% 확률
-            if (Math.random() < HUNTING_DROP_RATE) {
+            // 드랍 판정: 1% 확률 (1T 드랍템은 존재하지 않음)
+            if (currentTier > 1 && Math.random() < HUNTING_DROP_RATE) {
               setInventory(prevInv => {
                 if (prevInv.length >= 300) return prevInv;
                 const tierMax = getMaxGradeForTier(currentTier);
@@ -1006,134 +1006,157 @@ export default function App() {
           <div style={{marginBottom: '10px'}}>
             <h4 style={{margin: 0, color: '#ffd700'}}>확률 설정</h4>
           </div>
-          <div style={{display: 'flex', gap: '40px', alignItems: 'center', flexWrap: 'wrap'}}>
-            {/* 드랍템 확률 */}
-            <div>
-              <h4 style={{margin: '0 0 10px 0', color: '#81c784'}}>📦 드랍템 확률</h4>
-              <div style={{display: 'flex', gap: '15px'}}>
-                <div>
-                  <label style={{fontSize: '0.85rem', marginRight: '5px'}}>고급:</label>
-                  <input
-                    type="number"
-                    value={dropRates.high}
-                    onChange={(e) => setDropRates({...dropRates, high: Math.max(0, Math.min(100, parseFloat(e.target.value) || 0))})}
-                    step="0.01"
-                    min="0"
-                    max="100"
-                    style={inputStyle}
-                  />
-                  <span style={{fontSize: '0.85rem', marginLeft: '3px'}}>%</span>
+          <div style={{display: 'flex', flexDirection: 'column', gap: '12px'}}>
+            <div style={{display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '16px', alignItems: 'start'}}>
+              {/* 드랍템 확률 */}
+              <div style={{minWidth: 0}}>
+                <h4 style={{margin: '0 0 10px 0', color: '#81c784'}}>📦 드랍템 확률</h4>
+                <div style={{display: 'flex', gap: '10px', flexWrap: 'wrap'}}>
+                  <div>
+                    <label style={{fontSize: '0.85rem', marginRight: '5px'}}>고급:</label>
+                    <input
+                      type="number"
+                      value={dropRates.high}
+                      onChange={(e) => setDropRates({...dropRates, high: Math.max(0, Math.min(100, parseFloat(e.target.value) || 0))})}
+                      step="0.01"
+                      min="0"
+                      max="100"
+                      style={compactInputStyle}
+                    />
+                    <span style={{fontSize: '0.85rem', marginLeft: '3px'}}>%</span>
+                  </div>
+                  <div>
+                    <label style={{fontSize: '0.85rem', marginRight: '5px'}}>희귀:</label>
+                    <input
+                      type="number"
+                      value={dropRates.rare}
+                      onChange={(e) => setDropRates({...dropRates, rare: Math.max(0, Math.min(100, parseFloat(e.target.value) || 0))})}
+                      step="0.01"
+                      min="0"
+                      max="100"
+                      style={compactInputStyle}
+                    />
+                    <span style={{fontSize: '0.85rem', marginLeft: '3px'}}>%</span>
+                  </div>
+                  <div>
+                    <label style={{fontSize: '0.85rem', marginRight: '5px'}}>고대:</label>
+                    <input
+                      type="number"
+                      value={dropRates.hero}
+                      onChange={(e) => setDropRates({...dropRates, hero: Math.max(0, Math.min(100, parseFloat(e.target.value) || 0))})}
+                      step="0.01"
+                      min="0"
+                      max="100"
+                      style={compactInputStyle}
+                    />
+                    <span style={{fontSize: '0.85rem', marginLeft: '3px'}}>%</span>
+                  </div>
+                  <div>
+                    <label style={{fontSize: '0.85rem', marginRight: '5px'}}>SR:</label>
+                    <input
+                      type="number"
+                      value={dropRates.sr}
+                      onChange={(e) => setDropRates({...dropRates, sr: Math.max(0, Math.min(100, parseFloat(e.target.value) || 0))})}
+                      step="0.01"
+                      min="0"
+                      max="100"
+                      style={compactInputStyle}
+                    />
+                    <span style={{fontSize: '0.85rem', marginLeft: '3px'}}>%</span>
+                  </div>
                 </div>
-                <div>
-                  <label style={{fontSize: '0.85rem', marginRight: '5px'}}>희귀:</label>
-                  <input
-                    type="number"
-                    value={dropRates.rare}
-                    onChange={(e) => setDropRates({...dropRates, rare: Math.max(0, Math.min(100, parseFloat(e.target.value) || 0))})}
-                    step="0.01"
-                    min="0"
-                    max="100"
-                    style={inputStyle}
-                  />
-                  <span style={{fontSize: '0.85rem', marginLeft: '3px'}}>%</span>
-                </div>
-                <div>
-                  <label style={{fontSize: '0.85rem', marginRight: '5px'}}>고대:</label>
-                  <input
-                    type="number"
-                    value={dropRates.hero}
-                    onChange={(e) => setDropRates({...dropRates, hero: Math.max(0, Math.min(100, parseFloat(e.target.value) || 0))})}
-                    step="0.01"
-                    min="0"
-                    max="100"
-                    style={inputStyle}
-                  />
-                  <span style={{fontSize: '0.85rem', marginLeft: '3px'}}>%</span>
-                </div>
-                <div>
-                  <label style={{fontSize: '0.85rem', marginRight: '5px'}}>SR:</label>
-                  <input
-                    type="number"
-                    value={dropRates.sr}
-                    onChange={(e) => setDropRates({...dropRates, sr: Math.max(0, Math.min(100, parseFloat(e.target.value) || 0))})}
-                    step="0.01"
-                    min="0"
-                    max="100"
-                    style={inputStyle}
-                  />
-                  <span style={{fontSize: '0.85rem', marginLeft: '3px'}}>%</span>
+                <div style={{marginTop: '6px', padding: '8px', backgroundColor: '#2a2a2a', borderRadius: '4px', fontSize: '0.8rem', color: '#ff6b00', fontWeight: 'bold'}}>
+                  🌟 특별궁극기(SR) 확률: {dropRates.sr.toFixed(2)}% (3T 이후부터)
                 </div>
               </div>
-              <div style={{marginTop: '10px', padding: '10px', backgroundColor: '#2a2a2a', borderRadius: '4px', fontSize: '0.85rem', color: '#ff6b00', fontWeight: 'bold'}}>
-                🌟 특별궁극기(SR) 확률: {dropRates.sr.toFixed(2)}% (3T 이후부터)
-              </div>
-            </div>
 
-            {/* 제작템 확률 */}
-            <div>
-              <h4 style={{margin: '0 0 10px 0', color: '#64b5f6'}}>🛠️ 제작템 확률</h4>
-              <div style={{display: 'flex', gap: '15px'}}>
-                <div>
-                  <label style={{fontSize: '0.85rem', marginRight: '5px'}}>고급:</label>
+              {/* 전리품 드랍 확률 */}
+              <div style={{minWidth: 0}}>
+                <h4 style={{margin: '0 0 10px 0', color: '#ffd166'}}>🎁 전리품 드랍 확률</h4>
+                <div style={{display: 'flex', gap: '10px', alignItems: 'center'}}>
+                  <label style={{fontSize: '0.85rem', marginRight: '5px'}}>전리품:</label>
                   <input
                     type="number"
-                    value={craftRates.high}
-                    onChange={(e) => setCraftRates({...craftRates, high: Math.max(0, Math.min(100, parseFloat(e.target.value) || 0))})}
+                    value={lootDropRate}
+                    onChange={(e) => setLootDropRate(Math.max(0, Math.min(100, parseFloat(e.target.value) || 0)))}
                     step="0.01"
                     min="0"
                     max="100"
-                    style={inputStyle}
+                    style={compactInputStyle}
                   />
                   <span style={{fontSize: '0.85rem', marginLeft: '3px'}}>%</span>
                 </div>
-                <div>
-                  <label style={{fontSize: '0.85rem', marginRight: '5px'}}>희귀:</label>
-                  <input
-                    type="number"
-                    value={craftRates.rare}
-                    onChange={(e) => setCraftRates({...craftRates, rare: Math.max(0, Math.min(100, parseFloat(e.target.value) || 0))})}
-                    step="0.01"
-                    min="0"
-                    max="100"
-                    style={inputStyle}
-                  />
-                  <span style={{fontSize: '0.85rem', marginLeft: '3px'}}>%</span>
-                </div>
-                <div>
-                  <label style={{fontSize: '0.85rem', marginRight: '5px'}}>고대:</label>
-                  <input
-                    type="number"
-                    value={craftRates.hero}
-                    onChange={(e) => setCraftRates({...craftRates, hero: Math.max(0, Math.min(100, parseFloat(e.target.value) || 0))})}
-                    step="0.01"
-                    min="0"
-                    max="100"
-                    style={inputStyle}
-                  />
-                  <span style={{fontSize: '0.85rem', marginLeft: '3px'}}>%</span>
-                </div>
-                <div>
-                  <label style={{fontSize: '0.85rem', marginRight: '5px'}}>SR:</label>
-                  <input
-                    type="number"
-                    value={craftRates.sr}
-                    onChange={(e) => setCraftRates({...craftRates, sr: Math.max(0, Math.min(100, parseFloat(e.target.value) || 0))})}
-                    step="0.01"
-                    min="0"
-                    max="100"
-                    style={inputStyle}
-                  />
-                  <span style={{fontSize: '0.85rem', marginLeft: '3px'}}>%</span>
+                <div style={{marginTop: '6px', padding: '8px', backgroundColor: '#2a2a2a', borderRadius: '4px', fontSize: '0.8rem', color: '#ffd166', fontWeight: 'bold'}}>
+                  기본값 100% (1T 사냥터는 2T 전리품 드랍)
                 </div>
               </div>
-              <div style={{marginTop: '10px', padding: '10px', backgroundColor: '#2a2a2a', borderRadius: '4px', fontSize: '0.85rem', color: '#ff6b00', fontWeight: 'bold'}}>
-                🌟 특별궁극기(SR) 확률: {craftRates.sr.toFixed(2)}%
+
+              {/* 제작템 확률 */}
+              <div style={{minWidth: 0}}>
+                <h4 style={{margin: '0 0 10px 0', color: '#64b5f6'}}>🛠️ 제작템 확률</h4>
+                <div style={{display: 'flex', gap: '10px', flexWrap: 'wrap'}}>
+                  <div>
+                    <label style={{fontSize: '0.85rem', marginRight: '5px'}}>고급:</label>
+                    <input
+                      type="number"
+                      value={craftRates.high}
+                      onChange={(e) => setCraftRates({...craftRates, high: Math.max(0, Math.min(100, parseFloat(e.target.value) || 0))})}
+                      step="0.01"
+                      min="0"
+                      max="100"
+                      style={compactInputStyle}
+                    />
+                    <span style={{fontSize: '0.85rem', marginLeft: '3px'}}>%</span>
+                  </div>
+                  <div>
+                    <label style={{fontSize: '0.85rem', marginRight: '5px'}}>희귀:</label>
+                    <input
+                      type="number"
+                      value={craftRates.rare}
+                      onChange={(e) => setCraftRates({...craftRates, rare: Math.max(0, Math.min(100, parseFloat(e.target.value) || 0))})}
+                      step="0.01"
+                      min="0"
+                      max="100"
+                      style={compactInputStyle}
+                    />
+                    <span style={{fontSize: '0.85rem', marginLeft: '3px'}}>%</span>
+                  </div>
+                  <div>
+                    <label style={{fontSize: '0.85rem', marginRight: '5px'}}>고대:</label>
+                    <input
+                      type="number"
+                      value={craftRates.hero}
+                      onChange={(e) => setCraftRates({...craftRates, hero: Math.max(0, Math.min(100, parseFloat(e.target.value) || 0))})}
+                      step="0.01"
+                      min="0"
+                      max="100"
+                      style={compactInputStyle}
+                    />
+                    <span style={{fontSize: '0.85rem', marginLeft: '3px'}}>%</span>
+                  </div>
+                  <div>
+                    <label style={{fontSize: '0.85rem', marginRight: '5px'}}>SR:</label>
+                    <input
+                      type="number"
+                      value={craftRates.sr}
+                      onChange={(e) => setCraftRates({...craftRates, sr: Math.max(0, Math.min(100, parseFloat(e.target.value) || 0))})}
+                      step="0.01"
+                      min="0"
+                      max="100"
+                      style={compactInputStyle}
+                    />
+                    <span style={{fontSize: '0.85rem', marginLeft: '3px'}}>%</span>
+                  </div>
+                </div>
+                <div style={{marginTop: '6px', padding: '8px', backgroundColor: '#2a2a2a', borderRadius: '4px', fontSize: '0.8rem', color: '#ff6b00', fontWeight: 'bold'}}>
+                  🌟 특별궁극기(SR) 확률: {craftRates.sr.toFixed(2)}%
+                </div>
               </div>
             </div>
 
             {/* 강화 확률 + 보호제 가격 */}
-            <div>
-              <div style={{display: 'flex', alignItems: 'center', gap: '20px', marginBottom: '10px'}}>
+            <div style={{padding: '10px', backgroundColor: '#1a1a1a', borderRadius: '6px', border: '1px solid #333'}}>
+              <div style={{display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px', flexWrap: 'nowrap'}}>
                 <h4 style={{margin: 0, color: '#9575cd'}}>⚔️ 강화 확률</h4>
                 <div style={{display: 'flex', alignItems: 'center', gap: '5px'}}>
                   <label style={{fontSize: '0.8rem', color: '#ffeb3b', fontWeight: 'bold'}}>🛡️ 보호제:</label>
@@ -1143,15 +1166,15 @@ export default function App() {
                     onChange={(e) => setProtectionPrice(Math.max(1, parseFloat(e.target.value) || 100))}
                     step="1"
                     min="1"
-                    style={{...inputStyle, width: '80px'}}
+                    style={{...compactInputStyle, width: '64px'}}
                   />
                   <span style={{fontSize: '0.8rem'}}>원</span>
                 </div>
               </div>
-              <div style={{display: 'flex', gap: '8px', flexWrap: 'wrap'}}>
+              <div style={{display: 'flex', gap: '6px', flexWrap: 'nowrap', overflowX: 'auto', paddingBottom: '2px'}}>
                 {enhanceRates.map((rate, index) => (
                   <div key={index} style={{display: 'flex', alignItems: 'center'}}>
-                    <label style={{fontSize: '0.85rem', marginRight: '5px'}}>+{index + 1}강:</label>
+                    <label style={{fontSize: '0.8rem', marginRight: '4px'}}>+{index + 1}강:</label>
                     <input
                       type="number"
                       value={rate}
@@ -1163,9 +1186,9 @@ export default function App() {
                       step="0.01"
                       min="0"
                       max="100"
-                      style={{...inputStyle, width: '60px'}}
+                      style={compactInputStyle}
                     />
-                    <span style={{fontSize: '0.85rem', marginLeft: '3px'}}>%</span>
+                    <span style={{fontSize: '0.8rem', marginLeft: '3px'}}>%</span>
                   </div>
                 ))}
               </div>
@@ -1876,6 +1899,7 @@ export default function App() {
 const containerStyle: React.CSSProperties = { padding: '20px', backgroundColor: '#121212', color: '#fff', minHeight: '100vh', fontFamily: 'sans-serif', maxWidth: '1400px', margin: '0 auto' };
 const rateConfigStyle: React.CSSProperties = { padding: '20px', backgroundColor: '#1e1e1e', borderRadius: '8px', marginBottom: '20px', border: '1px solid #333' };
 const inputStyle: React.CSSProperties = { width: '80px', padding: '6px 8px', backgroundColor: '#333', color: '#fff', border: '1px solid #555', borderRadius: '4px', fontSize: '0.9rem', textAlign: 'right' };
+const compactInputStyle: React.CSSProperties = { width: '60px', padding: '4px 6px', backgroundColor: '#333', color: '#fff', border: '1px solid #555', borderRadius: '4px', fontSize: '0.8rem', textAlign: 'right' };
 const modalOverlayStyle: React.CSSProperties = {
   position: 'fixed',
   top: 0,
