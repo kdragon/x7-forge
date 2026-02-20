@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react';
-import { simulateAllTiers } from './enhanceSimulation';
 import type { Item, EcoMode } from './shared/types';
 import { getOreCount as getOreCountCore, addOreToInventory as addOreToInventoryCore, consumeOre as consumeOreCore } from './core/inventory';
 import { getDisassembleStones, getUpgradeCost, getNextGrade } from './core/enhance';
@@ -724,7 +723,7 @@ export default function App() {
       setInventory([...oreResult.inventory, craftedItem]);
       setConsumedItems(oreResult.consumedItems);
       setInlandTradeCoins(prev => prev - 10);
-      const coinLabel = tier === 5 ? '내륙코인' : '해상코인';
+      const coinLabel = '내륙코인';
       addLog(`[제작] ${tier}T 필드 ${grade}${isSR ? ' SR' : ''} 획득 (${coinLabel} 10, 철광석 10 소모)`);
       return;
     } else {
@@ -738,7 +737,7 @@ export default function App() {
       setInventory([...oreResult.inventory, craftedItem]);
       setConsumedItems(oreResult.consumedItems);
       setSeaTradeCoins(prev => prev - 10);
-      const coinLabel = tier === 5 ? '내륙코인' : '해상코인';
+      const coinLabel = '해상코인';
       addLog(`[제작] ${tier}T 필드 ${grade}${isSR ? ' SR' : ''} 획득 (${coinLabel} 10, 철광석 10 소모)`);
       return;
     }
@@ -2087,7 +2086,6 @@ export default function App() {
 // --- 스타일 정의 ---
 const containerStyle: React.CSSProperties = { padding: '20px', backgroundColor: '#121212', color: '#fff', minHeight: '100vh', fontFamily: 'sans-serif', maxWidth: '1400px', margin: '0 auto' };
 const rateConfigStyle: React.CSSProperties = { padding: '20px', backgroundColor: '#1e1e1e', borderRadius: '8px', marginBottom: '20px', border: '1px solid #333' };
-const inputStyle: React.CSSProperties = { width: '80px', padding: '6px 8px', backgroundColor: '#333', color: '#fff', border: '1px solid #555', borderRadius: '4px', fontSize: '0.9rem', textAlign: 'right' };
 const compactInputStyle: React.CSSProperties = { width: '60px', padding: '4px 6px', backgroundColor: '#333', color: '#fff', border: '1px solid #555', borderRadius: '4px', fontSize: '0.8rem', textAlign: 'right' };
 const modalOverlayStyle: React.CSSProperties = {
   position: 'fixed',
