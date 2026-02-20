@@ -99,17 +99,27 @@ export default function App() {
   const calculateAttack = (tier: number, grade: string, enhance: number) => {
     const baseByTier: Record<number, number> = {1: 60, 2: 80, 3: 120, 4: 180, 5: 260, 6: 360, 7: 480};
     const base = baseByTier[tier] || tier * 100;
-    const gradeBonus = grade === '고급' ? 10 : grade === '희귀' ? 20 : 0;
+    const gradeBonusMap: Record<string, number> = {
+      '고급': 20, '희귀': 40, '고대': 60, '영웅': 80, '유일': 100, '유물': 120
+    };
+    const gradeBonus = gradeBonusMap[grade] || 0;
     const enhanceBonus = enhance * 10;
     return base + gradeBonus + enhanceBonus;
   };
 
+  const BONUS_ATTACK_RANGES: Record<number, [number, number]> = {
+    1: [3, 6], 2: [4, 8], 3: [6, 12], 4: [9, 18], 5: [13, 26], 6: [18, 36], 7: [24, 48]
+  };
+
   const rollBonusAttack = (tier: number) => {
-    const ranges: Record<number, [number, number]> = {
-      1: [3, 6], 2: [4, 8], 3: [6, 12], 4: [9, 18], 5: [13, 26], 6: [18, 36], 7: [24, 48]
-    };
-    const [min, max] = ranges[tier] || [3, 6];
+    const [min, max] = BONUS_ATTACK_RANGES[tier] || [3, 6];
     return Math.floor(Math.random() * (max - min + 1)) + min;
+  };
+
+  const formatBonusAttack = (item: Item) => {
+    const [min, max] = BONUS_ATTACK_RANGES[item.tier] || [3, 6];
+    const isMax = item.bonusAttack === max;
+    return `${isMax ? '🔘' : ''}+${item.bonusAttack} (${min}~${max})`;
   };
 
   // --- 철광석 헬퍼 함수 ---
@@ -226,12 +236,12 @@ export default function App() {
 
   // --- 티어별 최대 등급 반환 ---
   const getMaxGradeForTier = (tier: number): '일반' | '고급' | '희귀' | '고대' | '영웅' | '유일' | '유물' => {
-    if (tier === 1) return '일반';
-    if (tier === 2) return '고급';
-    if (tier === 3) return '희귀';
-    if (tier === 4) return '고대';
-    if (tier === 5) return '영웅';
-    if (tier === 6) return '유일';
+    if (tier === 1) return '고급';
+    if (tier === 2) return '희귀';
+    if (tier === 3) return '고대';
+    if (tier === 4) return '영웅';
+    if (tier === 5) return '유일';
+    if (tier === 6) return '유물';
     if (tier === 7) return '유물';
     return '일반';
   };
@@ -317,8 +327,11 @@ export default function App() {
       return;
     }
 
-    // 티어별 최대 등급을 고려하여 등급 결정
-    const maxGrade = getMaxGradeForTier(tier);
+    // 드랍은 최대 고대 등급까지만 가능하며, 티어 최대 등급도 초과 불가
+    const GRADE_ORDER: Item['grade'][] = ['일반', '고급', '희귀', '고대', '영웅', '유일', '유물'];
+    const tierMax = getMaxGradeForTier(tier);
+    const dropCap: Item['grade'] = '고대';
+    const maxGrade = GRADE_ORDER.indexOf(tierMax) <= GRADE_ORDER.indexOf(dropCap) ? tierMax : dropCap;
     const grade = determineGrade(dropRates.rare, dropRates.high, dropRates.hero, maxGrade) as Item['grade'];
     const isSR = tier >= 3 && Math.random() < (dropRates.sr / 100); // 3T 이후부터 SR 확률 적용
 
@@ -1324,7 +1337,7 @@ export default function App() {
                 ) : (
                   <>
                     <div style={infoText}>공 : {item.attack}</div>
-                    <div style={infoText}>추가공격력: +{item.bonusAttack}</div>
+                    <div style={infoText}>추가공격력: {formatBonusAttack(item)}</div>
                     <div style={{...infoText, color: item.skill === 'SR' ? '#ff6b00' : '#64b5f6', fontWeight: item.skill === 'SR' ? 'bold' : 'normal'}}>스킬 : {item.skill}</div>
                     {item.slots > 0 && <div style={{...infoText, color: '#ce93d8'}}>세공 : {item.slots}칸</div>}
                     <div style={{...infoText, color: '#ffd700'}}>({item.grade})</div>
@@ -1431,7 +1444,7 @@ export default function App() {
                 )}
               </div>
               <div style={infoText}>공격력: {selectedItem.attack}</div>
-              <div style={infoText}>추가공격력: +{selectedItem.bonusAttack}</div>
+              <div style={infoText}>추가공격력: {formatBonusAttack(selectedItem)}</div>
               <div style={{...infoText, color: selectedItem.skill === 'SR' ? '#ff6b00' : '#64b5f6', fontWeight: selectedItem.skill === 'SR' ? 'bold' : 'normal'}}>스킬: {selectedItem.skill}</div>
               {selectedItem.slots > 0 && <div style={{...infoText, color: '#ce93d8'}}>세공: {selectedItem.slots}칸</div>}
               <div style={infoText}>강화: +{selectedItem.enhance}</div>
@@ -1481,7 +1494,7 @@ export default function App() {
                 )}
               </div>
               <div style={infoText}>공격력: {selectedItem.attack}</div>
-              <div style={infoText}>추가공격력: +{selectedItem.bonusAttack}</div>
+              <div style={infoText}>추가공격력: {formatBonusAttack(selectedItem)}</div>
               <div style={{...infoText, color: selectedItem.skill === 'SR' ? '#ff6b00' : '#64b5f6', fontWeight: selectedItem.skill === 'SR' ? 'bold' : 'normal'}}>스킬: {selectedItem.skill}</div>
               <div style={{...infoText, color: '#ff6b00', fontWeight: 'bold', fontSize: '0.9rem', marginTop: '5px'}}>현재 강화: +{selectedItem.enhance}강</div>
               <div style={{...infoText, color: '#ffd700', marginTop: '5px'}}>등급: {selectedItem.grade}</div>
@@ -1577,7 +1590,7 @@ export default function App() {
                   )}
                 </div>
                 <div style={infoText}>공격력: {deleteConfirmItem.attack}</div>
-                <div style={infoText}>추가공격력: +{deleteConfirmItem.bonusAttack}</div>
+                <div style={infoText}>추가공격력: {formatBonusAttack(deleteConfirmItem)}</div>
                 <div style={{...infoText, color: deleteConfirmItem.skill === 'SR' ? '#ff6b00' : '#64b5f6', fontWeight: deleteConfirmItem.skill === 'SR' ? 'bold' : 'normal'}}>스킬: {deleteConfirmItem.skill}</div>
                 <div style={{ ...infoText, color: '#ffd700' }}>등급: {deleteConfirmItem.grade}</div>
               </div>
@@ -1624,7 +1637,7 @@ export default function App() {
             {/* 선택된 아이템 정보 */}
             <div style={{...itemCard, backgroundColor: getGradeColor(selectedItem.grade), marginBottom: '20px'}}>
               <div style={{fontSize: '0.95rem', fontWeight: 'bold', marginBottom: '8px'}}>{selectedItem.name}</div>
-              <div style={infoText}>공격력: {selectedItem.attack} | 추가공격력: +{selectedItem.bonusAttack} | 스킬: {selectedItem.skill}</div>
+              <div style={infoText}>공격력: {selectedItem.attack} | 추가공격력: {formatBonusAttack(selectedItem)} | 스킬: {selectedItem.skill}</div>
               <div style={infoText}>{selectedItem.slots > 0 ? `세공: ${selectedItem.slots}칸 | ` : ''}강화: +{selectedItem.enhance}</div>
               <div style={{...infoText, color: '#ffd700', marginTop: '5px'}}>현재 등급: {selectedItem.grade}</div>
             </div>
@@ -1738,7 +1751,7 @@ export default function App() {
                             {item.name} {item.enhance > 0 ? `+${item.enhance}` : ''} ({item.grade})
                           </div>
                           <div style={{fontSize: '0.75rem', color: '#aaa'}}>
-                            공격: {item.attack} | 추가공격력: +{item.bonusAttack}
+                            공격: {item.attack} | 추가공격력: {formatBonusAttack(item)}
                           </div>
                         </div>
                       </div>
@@ -1804,7 +1817,7 @@ export default function App() {
                       {item.name} {item.enhance > 0 ? `+${item.enhance}` : ''} ({item.grade})
                     </div>
                     <div style={{fontSize: '0.75rem', color: '#aaa', marginTop: '3px'}}>
-                      공격: {item.attack} | 추가공격력: +{item.bonusAttack}
+                      공격: {item.attack} | 추가공격력: {formatBonusAttack(item)}
                     </div>
                   </div>
                 ))}
@@ -1912,7 +1925,7 @@ export default function App() {
                             {item.name} {item.enhance > 0 ? `+${item.enhance}` : ''}
                           </div>
                           <div style={{fontSize: '0.75rem', color: '#aaa'}}>
-                            등급: {item.grade} | 공격: {item.attack} | 추가공격력: +{item.bonusAttack} | 스킬: {item.skill}
+                            등급: {item.grade} | 공격: {item.attack} | 추가공격력: {formatBonusAttack(item)} | 스킬: {item.skill}
                           </div>
                         </div>
                         <div style={{fontSize: '0.95rem', fontWeight: 'bold', color: isTradeMode === 'inland' ? '#ff6b00' : '#1e88e5'}}>
