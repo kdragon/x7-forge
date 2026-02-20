@@ -1,7 +1,6 @@
 import type { CSSProperties } from 'react';
 import type { Item } from '../../shared/types';
 import { DEFAULT_POTION_CONFIG } from '../../core/potion';
-import { HUNTING_DROP_RATE } from '../../core/combat';
 import { getExpForLevel } from '../../core/character';
 import { useGameState } from '../../state/useGameState';
 
@@ -10,6 +9,8 @@ interface CombatPanelProps {
   onStartHunting: () => void;
   onStopHunting: () => void;
   onCollectOre: (oreId: number) => void;
+  onStartTradeInland: () => void;
+  onStartTradeSea: () => void;
 }
 
 const PIXEL = 4;
@@ -181,10 +182,14 @@ export default function CombatPanel(props: CombatPanelProps) {
     characterMaxHP,
     characterHP,
     characterBaseAttack,
+    inventory,
+    equippedItemId,
     monsterMaxHP,
     monsterHP,
     monsterAttack,
     damageEvents,
+    characterDamageEvents,
+    healEvents,
     monsterDefense,
     huntingTier,
     selectedHuntingTier,
@@ -192,22 +197,35 @@ export default function CombatPanel(props: CombatPanelProps) {
     killCount,
     spawnedOres,
     dropEffects,
+    skillEffects,
     potionCooldownLeftMs,
+    skillCooldownLeftMs,
+    lootDropRate,
   } = useGameState();
   const expToNextLevel = getExpForLevel(characterLevel + 1);
   const characterDefense = 0;
   const isHunting = huntingTier !== null;
   const displayHuntingTier = huntingTier ?? selectedHuntingTier;
-  const dropRatePercent = HUNTING_DROP_RATE * 100;
+  const dropRatePercent = lootDropRate;
   const potionConfig = DEFAULT_POTION_CONFIG;
   const isPotionOnCooldown = potionCooldownLeftMs > 0;
   const potionCooldownSeconds = Math.max(0, Math.ceil(potionCooldownLeftMs / 1000));
+  const isSkillOnCooldown = skillCooldownLeftMs > 0;
+  const skillCooldownMaxSeconds = 10;
+  const skillCooldownSeconds = Math.max(0, Math.ceil(skillCooldownLeftMs / 1000));
+  const showSkillCooldown = isSkillOnCooldown && skillCooldownSeconds < skillCooldownMaxSeconds;
+  const equippedItem = equippedItemId !== null
+    ? inventory.find(item => item.id === equippedItemId)
+    : null;
+  const equippedSkill = equippedItem && !equippedItem.isStackable ? equippedItem.skill : null;
 
   const {
     onSelectHuntingTier,
     onStartHunting,
     onStopHunting,
     onCollectOre,
+    onStartTradeInland,
+    onStartTradeSea,
   } = props;
   const getGradeColor = (grade: Item['grade']): string => {
     switch (grade) {
@@ -256,6 +274,49 @@ export default function CombatPanel(props: CombatPanelProps) {
             ))}
           </div>
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div
+              style={{
+                padding: '4px 6px',
+                backgroundColor: '#1e1e1e',
+                borderRadius: '6px',
+                border: '1px solid #333',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+              }}
+            >
+              <span style={{ fontSize: '0.7rem', fontWeight: 'bold', color: '#ddd' }}>무역</span>
+              <button
+                onClick={onStartTradeInland}
+                style={{
+                  padding: '6px 8px',
+                  cursor: 'pointer',
+                  border: '1px solid #555',
+                  borderRadius: '4px',
+                  backgroundColor: '#ff6b00',
+                  color: '#fff',
+                  fontSize: '0.78rem',
+                  fontWeight: 'bold',
+                }}
+              >
+                내륙
+              </button>
+              <button
+                onClick={onStartTradeSea}
+                style={{
+                  padding: '6px 8px',
+                  cursor: 'pointer',
+                  border: '1px solid #555',
+                  borderRadius: '4px',
+                  backgroundColor: '#1e88e5',
+                  color: '#fff',
+                  fontSize: '0.78rem',
+                  fontWeight: 'bold',
+                }}
+              >
+                해상
+              </button>
+            </div>
             <button
               onClick={() => (isHunting ? onStopHunting() : onStartHunting())}
               style={{
@@ -272,7 +333,6 @@ export default function CombatPanel(props: CombatPanelProps) {
             >
               {isHunting ? '사냥 중지' : '사냥 시작'}
             </button>
-            <span style={{ fontSize: '0.75rem', color: isHunting ? '#aaa' : '#555' }}>처치: {killCount}마리</span>
           </div>
         </div>
       </div>
@@ -393,10 +453,49 @@ export default function CombatPanel(props: CombatPanelProps) {
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              overflow: 'hidden',
+              overflow: 'visible',
             }}
           >
+            {isHunting && characterDamageEvents.map(event => (
+              <div
+                key={event.id}
+                style={{
+                  position: 'absolute',
+                  left: '50%',
+                  transform: 'translateX(-50%)',
+                  color: '#ff5252',
+                  fontWeight: 'bold',
+                  fontSize: '0.95rem',
+                  textShadow: '0 0 6px rgba(0,0,0,0.9)',
+                  animation: 'damageFloat 0.8s ease-out',
+                  pointerEvents: 'none',
+                  zIndex: 3,
+                }}
+              >
+                -{event.amount}
+              </div>
+            ))}
+            {isHunting && healEvents.map(event => (
+              <div
+                key={event.id}
+                style={{
+                  position: 'absolute',
+                  left: '50%',
+                  transform: 'translateX(-50%)',
+                  color: '#66bb6a',
+                  fontWeight: 'bold',
+                  fontSize: '0.95rem',
+                  textShadow: '0 0 6px rgba(0,0,0,0.9)',
+                  animation: 'damageFloat 0.8s ease-out',
+                  pointerEvents: 'none',
+                  zIndex: 3,
+                }}
+              >
+                +{event.amount}
+              </div>
+            ))}
             <div
+              title="10초의 쿨타임을 갖고 무기 공격력의 250% 대미지를 줍니다"
               style={{
                 position: 'absolute',
                 left: 0,
@@ -631,6 +730,41 @@ export default function CombatPanel(props: CombatPanelProps) {
           );
         })}
 
+        {/* 스킬 번개 이펙트 */}
+        {skillEffects.map((effect) => {
+          const isSrEffect = effect.kind === 'SR';
+          const offset = effect.offset ?? 0;
+          const width = isSrEffect ? 16 : 12;
+          const height = isSrEffect ? 210 : 170;
+          const glow = isSrEffect
+            ? '0 0 26px rgba(255, 214, 0, 0.95), 0 0 80px rgba(255, 214, 0, 0.95)'
+            : '0 0 22px rgba(0,170,255,0.95), 0 0 60px rgba(0,170,255,0.9)';
+          const beam = isSrEffect
+            ? 'linear-gradient(to bottom, rgba(255,255,255,0.0), rgba(255,214,0,1), rgba(255,255,255,0.0))'
+            : 'linear-gradient(to bottom, rgba(255,255,255,0.0), rgba(0,170,255,1), rgba(255,255,255,0.0))';
+          const duration = isSrEffect ? '0.6s' : '0.9s';
+          return (
+            <div
+              key={effect.id}
+              style={{
+                position: 'absolute',
+                bottom: '60px',
+                left: `calc(50% + 80px + ${offset}px)`,
+                transform: 'translateX(-50%)',
+                width: `${width}px`,
+                height: `${height}px`,
+                background: beam,
+                borderRadius: '999px',
+                boxShadow: glow,
+                filter: 'blur(0.1px)',
+                pointerEvents: 'none',
+                animation: `lightningStrike ${duration} ease-out forwards`,
+                zIndex: 4,
+              }}
+            />
+          );
+        })}
+
         {/* 광물 스폰 - 오른쪽 끝 근처 3슬롯 정렬 */}
         {spawnedOres.map((ore) => (
           <div
@@ -676,84 +810,80 @@ export default function CombatPanel(props: CombatPanelProps) {
 
         {/* 사냥 정보 */}
         <div
-          style={{ position: 'absolute', top: '5px', left: '10px', fontSize: '0.7rem', color: '#666' }}
-        >
-          {isHunting
-            ? `${huntingTier ?? displayHuntingTier}T 사냥터 · 드랍률 ${dropRatePercent}%`
-            : `${displayHuntingTier}T 사냥터 · 대기중`}
-        </div>
-
-        {/* 액션바 (1번 슬롯: 자동 포션) - 필드 위 왼쪽 정렬 */}
-        <div
           style={{
             position: 'absolute',
+            top: '5px',
             left: '10px',
-            bottom: '42px',
-            padding: '4px 8px',
-            backgroundColor: 'rgba(17,24,39,0.92)',
-            borderRadius: '6px',
-            border: '1px solid #1f2937',
+            fontSize: '0.7rem',
+            color: '#666',
             display: 'flex',
             alignItems: 'center',
             gap: '8px',
-            fontSize: '0.75rem',
           }}
         >
-          <span
-            style={{
-              color: '#9ca3af',
-              fontWeight: 'bold',
-              marginRight: '4px',
-            }}
-          >
-            액션바
+          <span>
+            {isHunting
+              ? `${huntingTier ?? displayHuntingTier}T 사냥터 · 드랍률 ${dropRatePercent}%`
+              : `${displayHuntingTier}T 사냥터 · 대기중`}
           </span>
-          <div style={{ display: 'flex', gap: '6px' }}>
-            {/* 1번 슬롯 - 자동 포션 */}
+          <span>처치: {killCount}마리</span>
+        </div>
+
+      </div>
+
+      {/* 액션바 (1번 슬롯: 자동 포션) - 전투 필드 아래 */}
+      <div
+        style={{
+          marginTop: '8px',
+          padding: '6px 10px',
+          backgroundColor: 'rgba(17,24,39,0.92)',
+          borderRadius: '6px',
+          border: '1px solid #1f2937',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          fontSize: '0.75rem',
+        }}
+      >
+        <span
+          style={{
+            color: '#9ca3af',
+            fontWeight: 'bold',
+            marginRight: '4px',
+          }}
+        >
+          액션바
+        </span>
+        <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
+          {equippedSkill && (
             <div
+              title={equippedSkill === 'SR'
+                ? '10초의 쿨타임을 갖고 캐릭터 공격력의 350% 의 대미지를 주고 100% 만큼 체력을 회복합니다.'
+                : '10초의 쿨타임을 갖고 캐릭터 공격력의 250% 대미지를 줍니다'}
               style={{
                 width: '32px',
                 height: '32px',
                 borderRadius: '4px',
-                border: isPotionOnCooldown ? '1px solid #4b5563' : '1px solid #10b981',
-                background: isPotionOnCooldown
-                  ? 'linear-gradient(135deg, #111827, #1f2937)'
-                  : 'linear-gradient(135deg, #064e3b, #10b981)',
-                position: 'relative',
+                border: equippedSkill === 'SR' ? '1px solid #f59e0b' : '1px solid #60a5fa',
+                background: equippedSkill === 'SR'
+                  ? 'linear-gradient(135deg, #7c2d12, #f59e0b)'
+                  : 'linear-gradient(135deg, #1e3a8a, #60a5fa)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                boxShadow: isPotionOnCooldown ? 'none' : '0 0 8px rgba(16,185,129,0.7)',
-                opacity: isPotionOnCooldown ? 0.6 : 1,
+                boxShadow: equippedSkill === 'SR'
+                  ? '0 0 8px rgba(245,158,11,0.7)'
+                  : '0 0 8px rgba(96,165,250,0.7)',
+                fontWeight: 'bold',
+                fontSize: '0.8rem',
+                color: '#0b0b0b',
+                textShadow: '0 1px 2px rgba(0,0,0,0.6)',
+                cursor: 'help',
+                position: 'relative',
               }}
             >
-              {/* 간단한 RPG 포션 형태 아이콘 */}
-              <div
-                style={{
-                  width: '14px',
-                  height: '18px',
-                  borderRadius: '4px 4px 6px 6px',
-                  border: '2px solid #e5e7eb',
-                  background: 'linear-gradient(to top, #10b981, #6ee7b7)',
-                  boxShadow: '0 0 4px rgba(16,185,129,0.8)',
-                  position: 'relative',
-                }}
-              >
-                <div
-                  style={{
-                    position: 'absolute',
-                    top: '-6px',
-                    left: '50%',
-                    transform: 'translateX(-50%)',
-                    width: '8px',
-                    height: '5px',
-                    borderRadius: '3px 3px 0 0',
-                    backgroundColor: '#e5e7eb',
-                    border: '2px solid #e5e7eb',
-                  }}
-                />
-              </div>
-              {isPotionOnCooldown && (
+              {equippedSkill}
+              {showSkillCooldown && (
                 <div
                   style={{
                     position: 'absolute',
@@ -769,16 +899,78 @@ export default function CombatPanel(props: CombatPanelProps) {
                     fontWeight: 'bold',
                   }}
                 >
-                  {potionCooldownSeconds}
+                  {skillCooldownSeconds}
                 </div>
               )}
             </div>
+          )}
+        </div>
+        <div style={{ position: 'relative' }}>
+          {/* 1번 슬롯 - 자동 포션 */}
+          <div
+            title={`포션 · HP ${Math.round(potionConfig.hpThreshold * 100)}% 미만 자동 사용 · 최대 체력 ${Math.round(potionConfig.healRatio * 100)}% 회복 · ${Math.round(potionConfig.cooldownMs / 1000)}초 쿨타임`}
+            style={{
+              width: '32px',
+              height: '32px',
+              borderRadius: '4px',
+              border: isPotionOnCooldown ? '1px solid #4b5563' : '1px solid #10b981',
+              background: isPotionOnCooldown
+                ? 'linear-gradient(135deg, #111827, #1f2937)'
+                : 'linear-gradient(135deg, #064e3b, #10b981)',
+              position: 'relative',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxShadow: isPotionOnCooldown ? 'none' : '0 0 8px rgba(16,185,129,0.7)',
+              opacity: isPotionOnCooldown ? 0.6 : 1,
+            }}
+          >
+            {/* 간단한 RPG 포션 형태 아이콘 */}
+            <div
+              style={{
+                width: '14px',
+                height: '18px',
+                borderRadius: '4px 4px 6px 6px',
+                border: '2px solid #e5e7eb',
+                background: 'linear-gradient(to top, #10b981, #6ee7b7)',
+                boxShadow: '0 0 4px rgba(16,185,129,0.8)',
+                position: 'relative',
+              }}
+            >
+              <div
+                style={{
+                  position: 'absolute',
+                  top: '-6px',
+                  left: '50%',
+                  transform: 'translateX(-50%)',
+                  width: '8px',
+                  height: '5px',
+                  borderRadius: '3px 3px 0 0',
+                  backgroundColor: '#e5e7eb',
+                  border: '2px solid #e5e7eb',
+                }}
+              />
+            </div>
+            {isPotionOnCooldown && (
+              <div
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  background:
+                    'linear-gradient(to top, rgba(15,23,42,0.9), rgba(15,23,42,0.1))',
+                  borderRadius: '4px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '0.75rem',
+                  color: '#e5e7eb',
+                  fontWeight: 'bold',
+                }}
+              >
+                {potionCooldownSeconds}
+              </div>
+            )}
           </div>
-          <span style={{ color: '#9ca3af' }}>
-            1번: 포션 · HP {Math.round(potionConfig.hpThreshold * 100)}% 미만 자동 사용 · +
-            {Math.round(potionConfig.healAmount)} HP ·{' '}
-            {Math.round(potionConfig.cooldownMs / 1000)}초 쿨타임
-          </span>
         </div>
       </div>
     </>

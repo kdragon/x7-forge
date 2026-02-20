@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { simulateAllTiers } from './enhanceSimulation';
 import type { Item, EcoMode } from './shared/types';
 import { getOreCount as getOreCountCore, addOreToInventory as addOreToInventoryCore, consumeOre as consumeOreCore } from './core/inventory';
@@ -29,6 +29,7 @@ import { actionBtn, btnStyle, infoText, itemCard, logPanel } from './ui/shared/s
 export default function App() {
   const state = useGameState();
   const { setState, addLog } = useGameActions();
+  const [isRateConfigOpen, setIsRateConfigOpen] = useState(false);
   const {
     inventory,
     log,
@@ -114,16 +115,46 @@ export default function App() {
   const setKillCount = (value: number | ((prev: number) => number)) => setField('killCount', value);
   const setSpawnedOres = (value: GameState['spawnedOres'] | ((prev: GameState['spawnedOres']) => GameState['spawnedOres'])) => setField('spawnedOres', value);
   const setDamageEvents = (value: GameState['damageEvents'] | ((prev: GameState['damageEvents']) => GameState['damageEvents'])) => setField('damageEvents', value);
+  const setCharacterDamageEvents = (value: GameState['characterDamageEvents'] | ((prev: GameState['characterDamageEvents']) => GameState['characterDamageEvents'])) => setField('characterDamageEvents', value);
+  const setHealEvents = (value: GameState['healEvents'] | ((prev: GameState['healEvents']) => GameState['healEvents'])) => setField('healEvents', value);
   const setDropEffects = (value: GameState['dropEffects'] | ((prev: GameState['dropEffects']) => GameState['dropEffects'])) => setField('dropEffects', value);
+  const setSkillEffects = (value: GameState['skillEffects'] | ((prev: GameState['skillEffects']) => GameState['skillEffects'])) => setField('skillEffects', value);
   const setPotionCooldownLeftMs = (value: number | ((prev: number) => number)) => setField('potionCooldownLeftMs', value);
+  const setSkillCooldownLeftMs = (value: number | ((prev: number) => number)) => setField('skillCooldownLeftMs', value);
   const setIsDisassembleMode = (value: boolean | ((prev: boolean) => boolean)) => setField('isDisassembleMode', value);
   const setIsDropCheatOpen = (value: boolean | ((prev: boolean) => boolean)) => setField('isDropCheatOpen', value);
   const setDisassembleSelection = (value: Item[] | ((prev: Item[]) => Item[])) => setField('disassembleSelection', value);
   const setDisassembleResult = (value: GameState['disassembleResult'] | ((prev: GameState['disassembleResult']) => GameState['disassembleResult'])) => setField('disassembleResult', value);
 
+  const renderLogMessage = (message: string) => {
+    const healMatch = message.match(/\+\d+\s?회복/);
+    if (!healMatch || healMatch.index === undefined) {
+      return message;
+    }
+    const start = healMatch.index;
+    const end = start + healMatch[0].length;
+    return (
+      <>
+        {message.slice(0, start)}
+        <span style={{ color: '#6ee7b7', fontWeight: 'bold' }}>{healMatch[0]}</span>
+        {message.slice(end)}
+      </>
+    );
+  };
+
   const oreSpawnTimeoutRef = useRef<number | null>(null);
   const potionCooldownRef = useRef<number>(0); // ms 타임스탬프
   const characterHPRef = useRef<number>(1500); // 포션 체크용 HP 레퍼런스
+  const monsterHPRef = useRef<number>(0);
+  const skillCooldownRef = useRef<number>(0);
+  const lastMonsterSpawnRef = useRef<number>(0);
+
+  const equippedItemForSkill = equippedItemId !== null
+    ? inventory.find(item => item.id === equippedItemId)
+    : null;
+  const equippedSkill = equippedItemForSkill && !equippedItemForSkill.isStackable
+    ? equippedItemForSkill.skill
+    : null;
 
   // 데이터 로드
   useEffect(() => {
@@ -159,15 +190,59 @@ export default function App() {
     }, 1000);
   };
 
+  const triggerSkillEffect = (kind: 'R' | 'SR') => {
+    const isSr = kind === 'SR';
+    const offsets = isSr ? [-18, -9, 0, 9, 18] : [0];
+    const durationMs = isSr ? 600 : 900;
+    const created = offsets.map((offset) => ({
+      id: Date.now() + Math.random(),
+      kind,
+      offset,
+    }));
+    setSkillEffects(prev => [...prev, ...created]);
+    created.forEach((effect) => {
+      window.setTimeout(() => {
+        setSkillEffects(prev => prev.filter(item => item.id !== effect.id));
+      }, durationMs);
+    });
+  };
+
+  const pushCharacterDamage = (amount: number) => {
+    const eventId = Date.now() + Math.random();
+    setCharacterDamageEvents(prevEvents => [...prevEvents, { id: eventId, amount, left: '50%' }]);
+    window.setTimeout(() => {
+      setCharacterDamageEvents(prevEvents => prevEvents.filter(e => e.id !== eventId));
+    }, 800);
+  };
+
+  const pushHealEvent = (amount: number) => {
+    const eventId = Date.now() + Math.random();
+    setHealEvents(prevEvents => [...prevEvents, { id: eventId, amount, left: '50%' }]);
+    window.setTimeout(() => {
+      setHealEvents(prevEvents => prevEvents.filter(e => e.id !== eventId));
+    }, 800);
+  };
+
   const handleMonsterKilled = (tier: number) => {
     setKillCount(prev => prev + 1);
+
+    const missingHp = Math.max(0, characterMaxHP - characterHPRef.current);
+    const healAmount = Math.min(monsterAttack + monsterDefense, missingHp);
+    if (healAmount > 0) {
+      pushHealEvent(healAmount);
+      setCharacterHP(prev => Math.min(characterMaxHP, prev + healAmount));
+      addLog(`[회복] 몬스터 처치 (ATK+DEF · +${healAmount} 회복)`);
+    }
 
     const { baseExp } = getMonsterBaseStats(tier);
 
     // --- 전리품 드랍: 몬스터 처치 시 확률 드랍 (스택) ---
     setInventory(prev => {
+      if (tier === 1) {
+        return prev;
+      }
       if (Math.random() < (lootDropRate / 100)) {
-        const lootTier = tier === 1 ? 2 : tier;
+        const lootTier = tier;
         const lootName = `${lootTier}T 전리품`;
         const updated = prev.map(item => ({ ...item }));
         let added = false;
@@ -223,6 +298,7 @@ export default function App() {
     setMonsterHP(maxHP);
     setMonsterAttack(attack);
     setMonsterDefense(defense);
+    lastMonsterSpawnRef.current = Date.now();
     // 추후 티어별 분기 가능
     window.setTimeout(() => setMonsterHP(maxHP), 0);
   }, [huntingTier]);
@@ -230,11 +306,11 @@ export default function App() {
   // 0.5초마다 캐릭터 → 몬스터 공격 (방어도 적용)
   useEffect(() => {
     if (!huntingTier) return;
-    if (monsterHP <= 0) return;
+    if (monsterHPRef.current <= 0) return;
 
     const interval = window.setInterval(() => {
       if (!huntingTier) return;
-      if (monsterHP <= 0) return;
+      if (monsterHPRef.current <= 0) return;
 
       // 캐릭터 전진 애니메이션은 즉시 시작
       setBattlePhase('attack');
@@ -248,18 +324,59 @@ export default function App() {
           if (prev <= 0) return prev;
 
           const currentTier = huntingTier;
-          const damage = calculateDamage(characterBaseAttack, monsterDefense);
-          if (damage <= 0) return prev;
-
-          const eventId = Date.now() + Math.random();
           const positions: string[] = ['40%', '50%', '60%']; // 좌측/중앙/우측 랜덤
-          const left = positions[Math.floor(Math.random() * positions.length)];
-          setDamageEvents(prevEvents => [...prevEvents, { id: eventId, amount: damage, left }]);
-          window.setTimeout(() => {
-            setDamageEvents(prevEvents => prevEvents.filter(e => e.id !== eventId));
-          }, 800);
+          let totalDamage = 0;
 
-          const next = prev - damage;
+          const baseDamage = calculateDamage(characterBaseAttack, monsterDefense);
+          if (baseDamage > 0) {
+            const eventId = Date.now() + Math.random();
+            const left = positions[Math.floor(Math.random() * positions.length)];
+            setDamageEvents(prevEvents => [...prevEvents, { id: eventId, amount: baseDamage, left }]);
+            window.setTimeout(() => {
+              setDamageEvents(prevEvents => prevEvents.filter(e => e.id !== eventId));
+            }, 800);
+            totalDamage += baseDamage;
+          }
+
+          if (equippedSkill && Date.now() >= skillCooldownRef.current && monsterHPRef.current > 0) {
+            const isSrSkill = equippedSkill === 'SR';
+            const damageMultiplier = isSrSkill ? 3.5 : 2.5;
+            const healMultiplier = isSrSkill ? 1.0 : 0;
+            const skillAttack = Math.floor(characterBaseAttack * damageMultiplier);
+            const skillDamage = calculateDamage(skillAttack, monsterDefense);
+            skillCooldownRef.current = Date.now() + 10000;
+            setSkillCooldownLeftMs(10000);
+            let actualHeal = 0;
+            if (skillDamage > 0) {
+              const eventId = Date.now() + Math.random();
+              const left = positions[Math.floor(Math.random() * positions.length)];
+              setDamageEvents(prevEvents => [...prevEvents, { id: eventId, amount: skillDamage, left }]);
+              window.setTimeout(() => {
+                setDamageEvents(prevEvents => prevEvents.filter(e => e.id !== eventId));
+              }, 800);
+              totalDamage += skillDamage;
+            }
+            if (healMultiplier > 0) {
+              const rawHeal = Math.floor(characterBaseAttack * healMultiplier);
+              if (rawHeal > 0) {
+                actualHeal = Math.min(rawHeal, Math.max(0, characterMaxHP - characterHPRef.current));
+                if (actualHeal > 0) {
+                  pushHealEvent(actualHeal);
+                }
+                setCharacterHP(prev => Math.min(characterMaxHP, prev + rawHeal));
+              }
+            }
+            triggerSkillEffect(isSrSkill ? 'SR' : 'R');
+            if (isSrSkill) {
+              addLog(`[스킬] ${equippedSkill} 발동! (+${skillDamage} 피해 · +${actualHeal} 회복)`);
+            } else {
+              addLog(`[스킬] ${equippedSkill} 발동! (+${skillDamage} 피해)`);
+            }
+          }
+
+          if (totalDamage <= 0) return prev;
+
+          const next = prev - totalDamage;
 
           // 일반 피격: 피격 모션 → 대기 모션 (실제 타격 시점 기준)
           if (next > 0) {
@@ -309,6 +426,10 @@ export default function App() {
           setBattlePhase('dead');
 
           // 몬스터 처치 후 리스폰 (HP/공격/방어 재설정)
+          const now = Date.now();
+          const minSpawnGapMs = 5000;
+          const nextSpawnAt = lastMonsterSpawnRef.current + minSpawnGapMs;
+          const respawnDelay = Math.max(nextSpawnAt - now, 0);
           window.setTimeout(() => {
             if (!huntingTier) return;
             const { maxHP, attack, defense } = getMonsterBaseStats(huntingTier);
@@ -317,29 +438,35 @@ export default function App() {
             setMonsterAttack(attack);
             setMonsterDefense(defense);
             setBattlePhase('spawn');
+            lastMonsterSpawnRef.current = Date.now();
             window.setTimeout(() => {
               setBattlePhase('idle');
             }, 400);
-          }, 500);
+          }, respawnDelay);
           return 0;
         });
       }, attackContactDelay);
     }, 500);
 
     return () => window.clearInterval(interval);
-  }, [huntingTier, characterBaseAttack, monsterHP, monsterDefense]);
+  }, [huntingTier, characterBaseAttack, monsterDefense]);
 
   // 1초마다 몬스터 → 캐릭터 공격 (방어도 적용)
   const characterDefense = 0; // 추후 장비/레벨에 따라 확장 가능
 
   useEffect(() => {
     if (!huntingTier) return;
-    if (characterHP <= 0) return;
+    if (characterHPRef.current <= 0) return;
 
     const interval = window.setInterval(() => {
+      if (monsterHPRef.current <= 0) return;
       setCharacterHP(prev => {
         if (prev <= 0) return prev;
+        if (monsterHPRef.current <= 0) return prev;
         const damage = calculateDamage(monsterAttack, characterDefense);
+        if (damage > 0) {
+          pushCharacterDamage(damage);
+        }
         const next = prev - damage;
         if (next <= 0) {
           // 캐릭터 사망 처리: 사냥 중지
@@ -354,30 +481,40 @@ export default function App() {
     }, 1000);
 
     return () => window.clearInterval(interval);
-  }, [huntingTier, monsterAttack, characterHP]);
+  }, [huntingTier, monsterAttack]);
   
   // characterHPRef를 항상 최신 HP와 동기화 (포션 체크용)
   useEffect(() => {
     characterHPRef.current = characterHP;
   }, [characterHP]);
 
+  useEffect(() => {
+    monsterHPRef.current = monsterHP;
+  }, [monsterHP]);
+
   // 포션 자동 사용 및 쿨타임 카운트다운
   useEffect(() => {
     if (!huntingTier) {
       setPotionCooldownLeftMs(0);
+      setSkillCooldownLeftMs(0);
       return;
     }
 
     const interval = window.setInterval(() => {
       const now = Date.now();
-      const { hpThreshold, healAmount, cooldownMs } = DEFAULT_POTION_CONFIG;
+      const { hpThreshold, healRatio, cooldownMs } = DEFAULT_POTION_CONFIG;
       const thresholdHP = characterMaxHP * hpThreshold;
       const hp = characterHPRef.current;
+      const healAmount = Math.floor(characterMaxHP * healRatio);
 
       // 1) HP/쿨타임 조건을 업데이터 밖에서 동기적으로 체크하여 side effect 없는 순수 업데이터 사용
       if (hp > 0 && hp < thresholdHP && now >= potionCooldownRef.current) {
         potionCooldownRef.current = now + cooldownMs;
-        addLog(`[포션] 자동 사용 (HP +${healAmount})`);
+        addLog(`[포션] 자동 사용 (최대 HP ${Math.round(healRatio * 100)}% · +${healAmount} 회복)`);
+        const actualHeal = Math.min(healAmount, Math.max(0, characterMaxHP - hp));
+        if (actualHeal > 0) {
+          pushHealEvent(actualHeal);
+        }
         setCharacterHP(prev => {
           if (prev <= 0) return prev;
           return Math.min(characterMaxHP, prev + healAmount);
@@ -387,6 +524,9 @@ export default function App() {
       // 2) 남은 쿨타임 갱신 (UI 표시용) — ref가 이미 갱신된 후이므로 정확한 값 반영
       const remaining = Math.max(0, potionCooldownRef.current - Date.now());
       setPotionCooldownLeftMs(remaining);
+
+      const skillRemaining = Math.max(0, skillCooldownRef.current - Date.now());
+      setSkillCooldownLeftMs(skillRemaining);
     }, 1000);
 
     return () => window.clearInterval(interval);
@@ -455,6 +595,8 @@ export default function App() {
     setKillCount(0);
     setSpawnedOres([]);
     setCharacterHP(characterMaxHP); // 캐릭터 부활 및 체력 회복
+    skillCooldownRef.current = 0;
+    setSkillCooldownLeftMs(0);
   };
 
   const stopHunting = () => {
@@ -462,6 +604,11 @@ export default function App() {
     setBattlePhase('idle');
     setSpawnedOres([]);
     setDamageEvents([]);
+    setCharacterDamageEvents([]);
+    setHealEvents([]);
+    setSkillEffects([]);
+    skillCooldownRef.current = 0;
+    setSkillCooldownLeftMs(0);
     if (oreSpawnTimeoutRef.current) {
       clearTimeout(oreSpawnTimeoutRef.current);
       oreSpawnTimeoutRef.current = null;
@@ -555,11 +702,11 @@ export default function App() {
     if (!coreResult.success) return;
     const oreResult = consumeOreCore(coreResult.inventory, consumedItems, tier, 10);
     if (!oreResult.success) return;
-    setInventory(oreResult.inventory);
-    setConsumedItems(oreResult.consumedItems);
     const grade = determineGrade(craftRates.rare, craftRates.high, craftRates.hero, getMaxGradeForTier(tier)) as Item['grade'];
     const isSR = Math.random() < (craftRates.sr / 100);
-    setInventory(prev => [...prev, createCraftedFieldItem(tier, grade, isSR)]);
+    const craftedItem = createCraftedFieldItem(tier, grade, isSR);
+    setInventory([...oreResult.inventory, craftedItem]);
+    setConsumedItems(oreResult.consumedItems);
     addLog(`[제작] ${tier}T 필드 ${grade}${isSR ? ' SR' : ''} 획득 (코어 10, 철광석 10 소모)`);
   };
 
@@ -571,23 +718,30 @@ export default function App() {
       if (getOreCount(5) < 10) { alert('5T 철광석 10개가 필요합니다.'); return; }
       const oreResult = consumeOreCore(inventory, consumedItems, 5, 10);
       if (!oreResult.success) return;
-      setInventory(oreResult.inventory);
+      const grade = determineGrade(craftRates.rare, craftRates.high, craftRates.hero, getMaxGradeForTier(tier)) as Item['grade'];
+      const isSR = Math.random() < (craftRates.sr / 100);
+      const craftedItem = createCraftedFieldItem(tier, grade, isSR);
+      setInventory([...oreResult.inventory, craftedItem]);
       setConsumedItems(oreResult.consumedItems);
       setInlandTradeCoins(prev => prev - 10);
+      const coinLabel = tier === 5 ? '내륙코인' : '해상코인';
+      addLog(`[제작] ${tier}T 필드 ${grade}${isSR ? ' SR' : ''} 획득 (${coinLabel} 10, 철광석 10 소모)`);
+      return;
     } else {
       if (seaTradeCoins < 10) { alert('해상무역코인 10개가 필요합니다.'); return; }
       if (getOreCount(6) < 10) { alert('6T 철광석 10개가 필요합니다.'); return; }
       const oreResult = consumeOreCore(inventory, consumedItems, 6, 10);
       if (!oreResult.success) return;
-      setInventory(oreResult.inventory);
+      const grade = determineGrade(craftRates.rare, craftRates.high, craftRates.hero, getMaxGradeForTier(tier)) as Item['grade'];
+      const isSR = Math.random() < (craftRates.sr / 100);
+      const craftedItem = createCraftedFieldItem(tier, grade, isSR);
+      setInventory([...oreResult.inventory, craftedItem]);
       setConsumedItems(oreResult.consumedItems);
       setSeaTradeCoins(prev => prev - 10);
+      const coinLabel = tier === 5 ? '내륙코인' : '해상코인';
+      addLog(`[제작] ${tier}T 필드 ${grade}${isSR ? ' SR' : ''} 획득 (${coinLabel} 10, 철광석 10 소모)`);
+      return;
     }
-    const grade = determineGrade(craftRates.rare, craftRates.high, craftRates.hero, getMaxGradeForTier(tier)) as Item['grade'];
-    const isSR = Math.random() < (craftRates.sr / 100);
-    setInventory(prev => [...prev, createCraftedFieldItem(tier, grade, isSR)]);
-    const coinLabel = tier === 5 ? '내륙코인' : '해상코인';
-    addLog(`[제작] ${tier}T 필드 ${grade}${isSR ? ' SR' : ''} 획득 (${coinLabel} 10, 철광석 10 소모)`);
   };
 
   // --- 필드 제작 로직 ---
@@ -597,8 +751,25 @@ export default function App() {
       return;
     }
 
-    // 1T~6T 필드 제작: (nT 전리품 10개 + nT 철광석 10개 필요)
-    if (tier >= 1 && tier <= 6) {
+    // 1T 필드 제작: (1T 철광석 10개만 필요)
+    if (tier === 1) {
+      if (getOreCount(1) < 10) {
+        alert('1T 철광석 10개가 필요합니다.');
+        return;
+      }
+      const oreResult = consumeOreCore(inventory, consumedItems, 1, 10);
+      if (!oreResult.success) return;
+      const grade = determineGrade(craftRates.rare, craftRates.high, craftRates.hero, getMaxGradeForTier(1)) as Item['grade'];
+      const isSR = Math.random() < (craftRates.sr / 100);
+      const craftedItem = createCraftedFieldItem(1, grade, isSR);
+      setInventory([...oreResult.inventory, craftedItem]);
+      setConsumedItems(oreResult.consumedItems);
+      addLog(`[제작] 1T 필드 ${grade}${isSR ? ' SR' : ''} 획득 (철광석 10 소모)`);
+      return;
+    }
+
+    // 2T~6T 필드 제작: (nT 전리품 10개 + nT 철광석 10개 필요)
+    if (tier >= 2 && tier <= 6) {
       if (getOreCount(tier) < 10) {
         alert(`${tier}T 철광석 10개가 필요합니다.`);
         return;
@@ -611,12 +782,11 @@ export default function App() {
       if (!oreResult.success) return;
       const lootResult = consumeLoot(oreResult.inventory, tier, 10);
       if (!lootResult.success) return;
-      setInventory(lootResult.inventory);
-      setConsumedItems(oreResult.consumedItems);
-
       const grade = determineGrade(craftRates.rare, craftRates.high, craftRates.hero, getMaxGradeForTier(tier)) as Item['grade'];
       const isSR = Math.random() < (craftRates.sr / 100);
-      setInventory(prev => [...prev, createCraftedFieldItem(tier, grade, isSR)]);
+      const craftedItem = createCraftedFieldItem(tier, grade, isSR);
+      setInventory([...lootResult.inventory, craftedItem]);
+      setConsumedItems(oreResult.consumedItems);
       addLog(`[제작] ${tier}T 필드 ${grade}${isSR ? ' SR' : ''} 획득 (전리품 10, 철광석 10 소모)`);
       return;
     }
@@ -629,12 +799,11 @@ export default function App() {
       }
       const oreResult = consumeOreCore(inventory, consumedItems, 7, 10);
       if (!oreResult.success) return;
-      setInventory(oreResult.inventory);
-      setConsumedItems(oreResult.consumedItems);
-
       const grade = determineGrade(craftRates.rare, craftRates.high, craftRates.hero, getMaxGradeForTier(7), '고대') as Item['grade'];
       const isSR = Math.random() < (craftRates.sr / 100);
-      setInventory(prev => [...prev, createCraftedFieldItem(7, grade, isSR)]);
+      const craftedItem = createCraftedFieldItem(7, grade, isSR);
+      setInventory([...oreResult.inventory, craftedItem]);
+      setConsumedItems(oreResult.consumedItems);
       addLog(`[제작] 7T 필드 ${grade}${isSR ? ' SR' : ''} 획득 (철광석 10 소모)`);
       return;
     }
@@ -998,15 +1167,40 @@ export default function App() {
             80% { opacity: 1; transform: translateX(-50%) translateY(-4px) scaleY(1); }
             100% { opacity: 0; transform: translateX(-50%) translateY(-10px) scaleY(0.9); }
           }
+          @keyframes lightningStrike {
+            0% { opacity: 0; transform: translateX(-50%) translateY(-12px) scaleY(0.3); }
+            15% { opacity: 1; transform: translateX(-50%) translateY(-2px) scaleY(1); }
+            40% { opacity: 1; transform: translateX(-50%) translateY(0) scaleY(0.9); }
+            100% { opacity: 0; transform: translateX(-50%) translateY(8px) scaleY(0.5); }
+          }
+          @keyframes cooldownBlink {
+            0%, 49% { opacity: 1; }
+            50%, 100% { opacity: 0; }
+          }
         `}</style>
         <h2 style={{ color: '#ffd700', margin: '0 0 20px 0' }}>Project X7 Dev Simulator</h2>
 
         {/* 확률 설정 */}
         <div style={rateConfigStyle}>
-          <div style={{marginBottom: '10px'}}>
+          <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: isRateConfigOpen ? '10px' : 0}}>
             <h4 style={{margin: 0, color: '#ffd700'}}>확률 설정</h4>
+            <button
+              onClick={() => setIsRateConfigOpen(prev => !prev)}
+              style={{
+                backgroundColor: '#2a2a2a',
+                border: '1px solid #555',
+                borderRadius: '4px',
+                color: '#ddd',
+                cursor: 'pointer',
+                fontSize: '0.8rem',
+                padding: '4px 10px',
+              }}
+            >
+              {isRateConfigOpen ? '접기 ▲' : '펼치기 ▼'}
+            </button>
           </div>
-          <div style={{display: 'flex', flexDirection: 'column', gap: '12px'}}>
+          {isRateConfigOpen && (
+            <div style={{display: 'flex', flexDirection: 'column', gap: '12px'}}>
             <div style={{display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '16px', alignItems: 'start'}}>
               {/* 드랍템 확률 */}
               <div style={{minWidth: 0}}>
@@ -1194,6 +1388,7 @@ export default function App() {
               </div>
             </div>
           </div>
+          )}
         </div>
 
       {/* Tier 별 최대 등급 */}
@@ -1425,18 +1620,6 @@ export default function App() {
         </div>
       </div>
 
-      {/* 무역 + 상태바 */}
-      <div style={{display: 'flex', gap: '10px', marginBottom: '10px'}}>
-        <div style={{padding: '8px 15px', backgroundColor: '#1e1e1e', borderRadius: '6px', border: '1px solid #333', display: 'flex', alignItems: 'center', gap: '10px'}}>
-          <span style={{fontSize: '0.8rem', fontWeight: 'bold'}}>💎 무역</span>
-          <button onClick={() => startTradeMode('inland')} style={{...actionBtn, backgroundColor: '#ff6b00'}}>내륙</button>
-          <button onClick={() => startTradeMode('sea')} style={{...actionBtn, backgroundColor: '#1e88e5'}}>해상</button>
-        </div>
-        <div style={{flex: 1, padding: '8px 15px', backgroundColor: '#252525', borderRadius: '6px', border: '1px solid #333', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.8rem'}}>
-          <span>1T철:{getOreCount(1)} 2T철:{getOreCount(2)} 3T철:{getOreCount(3)} 4T철:{getOreCount(4)} 5T철:{getOreCount(5)} 6T철:{getOreCount(6)} 7T철:{getOreCount(7)}</span>
-        </div>
-      </div>
-
       {/* 보호제 및 소모 통계 + 9강 달성 통계 */}
       <div style={{padding: '8px 12px', backgroundColor: '#1a1a1a', borderRadius: '6px', marginBottom: '15px', border: '1px solid #333', fontSize: '0.75rem'}}>
         <div style={{marginBottom: '4px', display: 'flex', gap: '20px', alignItems: 'center', flexWrap: 'wrap'}}>
@@ -1473,6 +1656,8 @@ export default function App() {
           onStartHunting={() => startHunting(selectedHuntingTier)}
           onStopHunting={stopHunting}
           onCollectOre={handleOreCollect}
+          onStartTradeInland={() => startTradeMode('inland')}
+          onStartTradeSea={() => startTradeMode('sea')}
         />
       </div>
 
@@ -1498,7 +1683,11 @@ export default function App() {
 
         <div style={logPanel}>
           <h3 style={{marginTop: 0}}>System Log</h3>
-          {log.map((m, i) => <div key={i} style={{fontSize: '0.85rem', padding: '4px 0', borderBottom: '1px solid #333'}}>{m}</div>)}
+          {log.map((m, i) => (
+            <div key={i} style={{fontSize: '0.85rem', padding: '4px 0', borderBottom: '1px solid #333'}}>
+              {renderLogMessage(m)}
+            </div>
+          ))}
         </div>
       </div>
 

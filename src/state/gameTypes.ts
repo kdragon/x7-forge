@@ -12,6 +12,12 @@ export interface DropEffect {
   grade: Item['grade'];
 }
 
+export interface SkillEffect {
+  id: number;
+  kind?: 'R' | 'SR';
+  offset?: number;
+}
+
 export interface DisassembleResult {
   items: Item[];
   stones: { low: number; mid: number; high: number };
@@ -58,8 +64,12 @@ export interface GameState {
   killCount: number;
   spawnedOres: SpawnedOre[];
   damageEvents: DamageEvent[];
+  characterDamageEvents: DamageEvent[];
+  healEvents: DamageEvent[];
   dropEffects: DropEffect[];
+  skillEffects: SkillEffect[];
   potionCooldownLeftMs: number;
+  skillCooldownLeftMs: number;
 
   isDisassembleMode: boolean;
   isDropCheatOpen: boolean;

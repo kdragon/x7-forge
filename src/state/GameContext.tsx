@@ -56,8 +56,12 @@ const createInitialState = (): GameState => ({
   killCount: 0,
   spawnedOres: [],
   damageEvents: [],
+  characterDamageEvents: [],
+  healEvents: [],
   dropEffects: [],
+  skillEffects: [],
   potionCooldownLeftMs: 0,
+  skillCooldownLeftMs: 0,
 
   isDisassembleMode: false,
   isDropCheatOpen: false,
