@@ -1,5 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { simulateAllTiers } from './enhanceSimulation';
+
+const ORE_SLOT_OFFSETS = [-90, 0, 90];
 
 type EcoMode = 'BM' | 'HARDCORE';
 
@@ -20,6 +22,8 @@ interface Item {
   usedProtectionCount?: number; // 이 아이템에 사용된 보호제 총 개수
 }
 
+type SpawnedOre = { id: number; slot: number };
+
 export default function App() {
   const [inventory, setInventory] = useState<Item[]>([]);
   const [log, setLog] = useState<string[]>([]);
@@ -35,9 +39,11 @@ export default function App() {
   const [deleteConfirmItem, setDeleteConfirmItem] = useState<Item | null>(null);
 
   // 경제 모드 (BM: 보호제 모델, HARDCORE: 파괴/재료 모델)
-  const [ecoMode, setEcoMode] = useState<EcoMode>('BM');
+  const [ecoMode, setEcoMode] = useState<EcoMode>('HARDCORE');
   // 숯돌 (분해로 획득)
   const [upgradeStones, setUpgradeStones] = useState({ low: 0, mid: 0, high: 0 }); // 하급, 중급, 상급
+  // 세공석
+  const [polishStones, setPolishStones] = useState(0);
 
   // 분해 모달
   const [isDisassembleMode, setIsDisassembleMode] = useState(false);
@@ -49,7 +55,7 @@ export default function App() {
   const [craftRates, setCraftRates] = useState({ high: 5.0, rare: 1.0, hero: 0.1, sr: 5.0 }); // 고급, 희귀, 고대, SR 확률 (%)
   
   // 강화 확률 설정 (각 강화 단계별 성공 확률)
-  const [enhanceRates, setEnhanceRates] = useState([100, 90, 80, 70, 51, 35, 25, 15, 8]); // +1~+9강 성공 확률 (%)
+  const [enhanceRates, setEnhanceRates] = useState([100, 100, 100, 85, 70, 51, 35, 30, 25]); // +1~+9강 성공 확률 (%)
 
   // 강화 보호제 가격 및 사용 통계
   const [protectionPrice, setProtectionPrice] = useState(100); // 보호제 1개당 가격 (원)
@@ -67,6 +73,15 @@ export default function App() {
     '1T철': 0, '2T철': 0, '3T철': 0,
     '4T철': 0, '5T철': 0, '6T철': 0, '7T철': 0
   });
+
+  // 사냥 관련 상태
+  const [huntingTier, setHuntingTier] = useState<number | null>(null);
+  const [selectedHuntingTier, setSelectedHuntingTier] = useState<number>(1);
+  const [battlePhase, setBattlePhase] = useState<'idle' | 'attack' | 'hit' | 'dead' | 'spawn'>('idle');
+  const [killCount, setKillCount] = useState(0);
+  const [spawnedOres, setSpawnedOres] = useState<SpawnedOre[]>([]);
+  const huntingRef = useRef<number | null>(null);
+  const oreSpawnTimeoutRef = useRef<number | null>(null);
 
   const addLog = (msg: string) => setLog(prev => [msg, ...prev].slice(0, 10));
 
@@ -101,7 +116,8 @@ export default function App() {
       '고급': 20, '희귀': 40, '고대': 60, '영웅': 80, '유일': 100, '유물': 120
     };
     const gradeBonus = gradeBonusMap[grade] || 0;
-    const enhanceBonus = enhance * 10;
+    const enhancePerTier: Record<number, number> = {1: 8, 2: 10, 3: 12, 4: 14, 5: 16, 6: 18, 7: 20};
+    const enhanceBonus = enhance * (enhancePerTier[tier] || 10);
     return base + gradeBonus + enhanceBonus;
   };
 
@@ -128,64 +144,30 @@ export default function App() {
 
   const addOreToInventory = (tier: number, amount: number) => {
     const oreName = `${tier}T 철광석`;
-
     setInventory(prev => {
       let updated = [...prev];
-      let remainingAmount = amount;
-      let addedCount = 0;
-
-      // 1단계: 기존 철광석 중 100 미만인 것을 찾아서 채우기
-      for (let i = 0; i < updated.length && remainingAmount > 0; i++) {
+      let remaining = amount;
+      for (let i = 0; i < updated.length && remaining > 0; i++) {
         if (updated[i].name === oreName && (updated[i].stackCount || 0) < 100) {
-          const currentCount = updated[i].stackCount || 0;
-          const canAdd = Math.min(100 - currentCount, remainingAmount);
-
-          updated[i] = { ...updated[i], stackCount: currentCount + canAdd };
-          remainingAmount -= canAdd;
-          addedCount += canAdd;
+          const cur = updated[i].stackCount || 0;
+          const canAdd = Math.min(100 - cur, remaining);
+          updated[i] = { ...updated[i], stackCount: cur + canAdd };
+          remaining -= canAdd;
         }
       }
-
-      // 2단계: 남은 양을 새로운 칸에 추가
       let loopCount = 0;
-      while (remainingAmount > 0 && loopCount < 1000) {
+      while (remaining > 0 && updated.length < 300 && loopCount < 1000) {
         loopCount++;
-
-        if (updated.length >= 300) {
-          const finalAdded = amount - remainingAmount;
-          setTimeout(() => {
-            alert(`인벤토리가 가득 찼습니다! (300/300)\n${finalAdded}개만 추가되었습니다.`);
-          }, 0);
-          break;
-        }
-
-        const stackAmount = Math.min(remainingAmount, 100);
-        const newId = Date.now() + Math.random() * 1000000 + loopCount;
-
+        const stackAmount = Math.min(remaining, 100);
         updated.push({
-          id: newId,
-          name: oreName,
-          tier,
-          grade: '일반' as const,
-          attack: 0,
-          bonusAttack: 0,
-          skill: 'R' as const,
-          slots: 0,
-          enhance: 0,
-          stackCount: stackAmount,
-          isStackable: true
+          id: Date.now() + Math.random() * 1000000 + loopCount,
+          name: oreName, tier, grade: '일반' as const, attack: 0, bonusAttack: 0,
+          skill: 'R' as const, slots: 0, enhance: 0, stackCount: stackAmount, isStackable: true
         });
-
-        remainingAmount -= stackAmount;
-        addedCount += stackAmount;
+        remaining -= stackAmount;
       }
-
-      // 로그 기록
-      const totalAdded = amount - remainingAmount;
-      if (totalAdded > 0) {
-        setTimeout(() => addLog(`[채집] ${tier}T 철광석 +${totalAdded}`), 0);
-      }
-
+      if (remaining > 0) setTimeout(() => alert(`인벤토리가 가득 찼습니다! (300/300)`), 0);
+      if (amount - remaining > 0) setTimeout(() => addLog(`[채집] ${tier}T 철광석 +${amount - remaining}`), 0);
       return updated;
     });
   };
@@ -316,6 +298,130 @@ export default function App() {
       return '일반';
     }
     return '일반';
+  };
+
+  // --- 사냥 시스템 (방치형 전투 사이클) ---
+  const startHunting = (tier: number) => {
+    setSelectedHuntingTier(tier);
+    setHuntingTier(tier);
+    setBattlePhase('idle');
+    setKillCount(0);
+    setSpawnedOres([]);
+  };
+
+  const stopHunting = () => {
+    setHuntingTier(null);
+    setBattlePhase('idle');
+    setSpawnedOres([]);
+    if (oreSpawnTimeoutRef.current) {
+      clearTimeout(oreSpawnTimeoutRef.current);
+      oreSpawnTimeoutRef.current = null;
+    }
+  };
+
+  useEffect(() => {
+    if (huntingTier === null) {
+      if (huntingRef.current) { clearInterval(huntingRef.current); huntingRef.current = null; }
+      return;
+    }
+
+    // 4초 사이클: idle(0~1s) → attack(1~1.8s) → hit(1.8~2.5s) → dead(2.5~3.5s) → spawn(3.5~4s) → 반복
+    let phaseTimer: number;
+    const runCycle = () => {
+      setBattlePhase('attack');
+      phaseTimer = window.setTimeout(() => {
+        setBattlePhase('hit');
+        phaseTimer = window.setTimeout(() => {
+          setBattlePhase('dead');
+          // 처치 판정
+          setKillCount(prev => prev + 1);
+          // 드랍 판정: 1% 확률로 드랍템
+          if (Math.random() < 0.01) {
+            // handleDrop은 alert를 쓰므로 직접 드랍 로직 수행
+            setInventory(prev => {
+              if (prev.length >= 300) return prev;
+              const GRADE_ORDER: Item['grade'][] = ['일반', '고급', '희귀', '고대', '영웅', '유일', '유물'];
+              const tierMax = getMaxGradeForTier(huntingTier);
+              const dropCap: Item['grade'] = '고대';
+              const maxGrade = GRADE_ORDER.indexOf(tierMax) <= GRADE_ORDER.indexOf(dropCap) ? tierMax : dropCap;
+              const grade = determineGrade(dropRates.rare, dropRates.high, dropRates.hero, maxGrade) as Item['grade'];
+              const isSR = huntingTier >= 3 && Math.random() < (dropRates.sr / 100);
+              const newItem: Item = {
+                id: Date.now() + Math.random(),
+                name: `${huntingTier}T 드랍템`,
+                tier: huntingTier,
+                grade,
+                attack: calculateAttack(huntingTier, grade, 0),
+                bonusAttack: rollBonusAttack(huntingTier),
+                skill: isSR ? 'SR' : 'R',
+                slots: 0,
+                enhance: 0
+              };
+              setTimeout(() => addLog(`[사냥] ${huntingTier}T 드랍템(${grade}) 획득!`), 0);
+              return [...prev, newItem];
+            });
+          }
+          setTimeout(() => addLog(`[사냥] ${huntingTier}T 몬스터 처치!`), 0);
+
+          phaseTimer = window.setTimeout(() => {
+            setBattlePhase('spawn');
+            phaseTimer = window.setTimeout(() => {
+              setBattlePhase('idle');
+            }, 500);
+          }, 1000);
+        }, 700);
+      }, 800);
+    };
+
+    // 첫 사이클 바로 시작
+    const cycleDelay = setTimeout(() => runCycle(), 1000);
+    huntingRef.current = window.setInterval(runCycle, 4000);
+
+    return () => {
+      clearTimeout(cycleDelay);
+      clearTimeout(phaseTimer);
+      if (huntingRef.current) { clearInterval(huntingRef.current); huntingRef.current = null; }
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [huntingTier]);
+
+  // 광물 스폰 사이클
+  useEffect(() => {
+    if (huntingTier === null) {
+      if (oreSpawnTimeoutRef.current) {
+        clearTimeout(oreSpawnTimeoutRef.current);
+        oreSpawnTimeoutRef.current = null;
+      }
+      setSpawnedOres([]);
+      return;
+    }
+
+    if (spawnedOres.length >= 3) return;
+
+    const delay = 10000 + Math.random() * 10000; // 10~20초 사이
+    const timeoutId = window.setTimeout(() => {
+      setSpawnedOres(prev => {
+        if (prev.length >= 3) return prev;
+        const usedSlots = prev.map(o => o.slot);
+        const availableSlots = [0, 1, 2].filter(s => !usedSlots.includes(s));
+        if (availableSlots.length === 0) return prev;
+        const slot = availableSlots[Math.floor(Math.random() * availableSlots.length)];
+        return [...prev, { id: Date.now() + Math.random(), slot }];
+      });
+    }, delay);
+
+    oreSpawnTimeoutRef.current = timeoutId;
+
+    return () => {
+      clearTimeout(timeoutId);
+    };
+  }, [huntingTier, spawnedOres.length]);
+
+  const handleOreCollect = (oreId: number) => {
+    if (!huntingTier) return;
+    addOreToInventory(huntingTier, 10);
+    setSpawnedOres(prev => prev.filter(ore => ore.id !== oreId));
+    addLog(`[사냥] 광물 채집 → ${huntingTier}T 철 +10`);
   };
 
   // --- 1. 드랍 파밍 (티어별 최대 등급 고려) ---
@@ -904,6 +1010,20 @@ export default function App() {
     setDeleteConfirmItem(null);
   };
 
+  // --- 숯돌 → 세공석 변환 ---
+  const POLISH_STONE_RATES: Record<'low' | 'mid' | 'high', number> = { low: 100, mid: 10, high: 1 };
+  const POLISH_STONE_LABELS: Record<'low' | 'mid' | 'high', string> = { low: '하급숯돌', mid: '중급숯돌', high: '상급숯돌' };
+
+  const convertToPolishStone = (type: 'low' | 'mid' | 'high') => {
+    const rate = POLISH_STONE_RATES[type];
+    const available = upgradeStones[type];
+    const convertible = Math.floor(available / rate);
+    if (convertible <= 0) return;
+    setUpgradeStones(prev => ({ ...prev, [type]: prev[type] - convertible * rate }));
+    setPolishStones(prev => prev + convertible);
+    addLog(`[변환] ${POLISH_STONE_LABELS[type]} ${convertible * rate}개 → 세공석 ${convertible}개`);
+  };
+
   // --- 9. 인벤토리 전체 삭제 ---
   const clearAllInventory = () => {
     if (inventory.length === 0) {
@@ -916,6 +1036,15 @@ export default function App() {
       setSelectedItem(null);
       setUsedProtectionCount(0); // 보호제 사용 통계도 초기화
       setUpgradeStones({ low: 0, mid: 0, high: 0 }); // 숯돌 초기화
+      setPolishStones(0); // 세공석 초기화
+      setHuntingTier(null); // 사냥 중지
+      setSelectedHuntingTier(1);
+      setKillCount(0);
+      setSpawnedOres([]);
+      if (oreSpawnTimeoutRef.current) {
+        clearTimeout(oreSpawnTimeoutRef.current);
+        oreSpawnTimeoutRef.current = null;
+      }
       setConsumedItems({
         '1T제작': 0, '1T드랍': 0,
         '2T제작': 0, '2T드랍': 0,
@@ -931,8 +1060,106 @@ export default function App() {
     }
   };
 
+  // --- 도트풍 픽셀아트 (box-shadow 기반) ---
+  const PIXEL = 4; // 1픽셀 크기
+  const pixelArt = (pixels: [number, number, string][]) => ({
+    width: PIXEL, height: PIXEL,
+    boxShadow: pixels.map(([x, y, c]) => `${x * PIXEL}px ${y * PIXEL}px 0 ${c}`).join(','),
+    position: 'absolute' as const, top: 0, left: 0
+  });
+
+  // 검사 캐릭터 (12x16)
+  const heroPixels: [number, number, string][] = [
+    // 머리 (갈색 머리카락)
+    [4,0,'#8B4513'],[5,0,'#8B4513'],[6,0,'#8B4513'],[7,0,'#8B4513'],
+    [3,1,'#8B4513'],[4,1,'#8B4513'],[5,1,'#8B4513'],[6,1,'#8B4513'],[7,1,'#8B4513'],[8,1,'#8B4513'],
+    // 얼굴 (피부)
+    [4,2,'#FDBCB4'],[5,2,'#FDBCB4'],[6,2,'#FDBCB4'],[7,2,'#FDBCB4'],
+    [4,3,'#FDBCB4'],[5,3,'#222'],[6,3,'#FDBCB4'],[7,3,'#222'], // 눈
+    [4,4,'#FDBCB4'],[5,4,'#FDBCB4'],[6,4,'#FDBCB4'],[7,4,'#FDBCB4'],
+    // 갑옷 (파란색)
+    [3,5,'#1565C0'],[4,5,'#1565C0'],[5,5,'#1565C0'],[6,5,'#1565C0'],[7,5,'#1565C0'],[8,5,'#1565C0'],
+    [2,6,'#1565C0'],[3,6,'#1565C0'],[4,6,'#42A5F5'],[5,6,'#42A5F5'],[6,6,'#42A5F5'],[7,6,'#42A5F5'],[8,6,'#1565C0'],[9,6,'#1565C0'],
+    [2,7,'#FDBCB4'],[3,7,'#1565C0'],[4,7,'#42A5F5'],[5,7,'#FFD700'],[6,7,'#42A5F5'],[7,7,'#42A5F5'],[8,7,'#1565C0'],[9,7,'#FDBCB4'],
+    [2,8,'#FDBCB4'],[3,8,'#1565C0'],[4,8,'#42A5F5'],[5,8,'#42A5F5'],[6,8,'#42A5F5'],[7,8,'#42A5F5'],[8,8,'#1565C0'],[9,8,'#FDBCB4'],
+    // 벨트
+    [4,9,'#8B4513'],[5,9,'#FFD700'],[6,9,'#FFD700'],[7,9,'#8B4513'],
+    // 다리 (진한 파랑)
+    [4,10,'#0D47A1'],[5,10,'#0D47A1'],[6,10,'#0D47A1'],[7,10,'#0D47A1'],
+    [4,11,'#0D47A1'],[5,11,'#0D47A1'],[6,11,'#0D47A1'],[7,11,'#0D47A1'],
+    [4,12,'#0D47A1'],[5,12,'#0D47A1'],[6,12,'#0D47A1'],[7,12,'#0D47A1'],
+    // 부츠 (갈색)
+    [3,13,'#5D4037'],[4,13,'#5D4037'],[5,13,'#5D4037'],[6,13,'#5D4037'],[7,13,'#5D4037'],[8,13,'#5D4037'],
+    // 칼 (오른쪽)
+    [10,3,'#B0BEC5'],[10,4,'#B0BEC5'],[10,5,'#B0BEC5'],[10,6,'#B0BEC5'],[10,7,'#8B4513'],[10,8,'#8B4513'],
+  ];
+
+  // 슬라임 몬스터 (10x8)
+  const slimePixels: [number, number, string][] = [
+    [3,0,'#4CAF50'],[4,0,'#4CAF50'],[5,0,'#4CAF50'],[6,0,'#4CAF50'],
+    [2,1,'#4CAF50'],[3,1,'#66BB6A'],[4,1,'#66BB6A'],[5,1,'#66BB6A'],[6,1,'#66BB6A'],[7,1,'#4CAF50'],
+    [1,2,'#4CAF50'],[2,2,'#66BB6A'],[3,2,'#66BB6A'],[4,2,'#66BB6A'],[5,2,'#66BB6A'],[6,2,'#66BB6A'],[7,2,'#66BB6A'],[8,2,'#4CAF50'],
+    [1,3,'#4CAF50'],[2,3,'#66BB6A'],[3,3,'#222'],[4,3,'#66BB6A'],[5,3,'#66BB6A'],[6,3,'#222'],[7,3,'#66BB6A'],[8,3,'#4CAF50'],
+    [1,4,'#388E3C'],[2,4,'#4CAF50'],[3,4,'#4CAF50'],[4,4,'#4CAF50'],[5,4,'#4CAF50'],[6,4,'#4CAF50'],[7,4,'#4CAF50'],[8,4,'#388E3C'],
+    [1,5,'#388E3C'],[2,5,'#388E3C'],[3,5,'#4CAF50'],[4,5,'#4CAF50'],[5,5,'#4CAF50'],[6,5,'#4CAF50'],[7,5,'#388E3C'],[8,5,'#388E3C'],
+    [2,6,'#2E7D32'],[3,6,'#388E3C'],[4,6,'#388E3C'],[5,6,'#388E3C'],[6,6,'#388E3C'],[7,6,'#2E7D32'],
+    [3,7,'#2E7D32'],[4,7,'#2E7D32'],[5,7,'#2E7D32'],[6,7,'#2E7D32'],
+  ];
+
+  const isHunting = huntingTier !== null;
+  const displayHuntingTier = huntingTier ?? selectedHuntingTier;
+
   return (
     <div style={containerStyle}>
+      {/* CSS 애니메이션 keyframes */}
+      <style>{`
+        @keyframes attackSwing {
+          0% { transform: translateX(0); }
+          40% { transform: translateX(80px); }
+          60% { transform: translateX(80px) rotate(-15deg); }
+          100% { transform: translateX(0); }
+        }
+        @keyframes monsterHit {
+          0% { transform: translateX(0); filter: brightness(1); }
+          20% { transform: translateX(8px); filter: brightness(2) saturate(0) hue-rotate(0deg); }
+          40% { transform: translateX(-8px); filter: brightness(1.5); }
+          60% { transform: translateX(5px); filter: brightness(1.2); }
+          100% { transform: translateX(0); filter: brightness(1); }
+        }
+        @keyframes monsterDeath {
+          0% { transform: translateY(0) scale(1); opacity: 1; }
+          50% { transform: translateY(10px) scale(0.8); opacity: 0.5; }
+          100% { transform: translateY(30px) scale(0.3); opacity: 0; }
+        }
+        @keyframes orePulse {
+          0% { transform: translateX(-50%) translateY(0) scale(1); opacity: 0.7; }
+          50% { transform: translateX(-50%) translateY(-6px) scale(1.15); opacity: 1; }
+          100% { transform: translateX(-50%) translateY(0) scale(1); opacity: 0.8; }
+        }
+        @keyframes monsterSpawn {
+          0% { transform: translateY(-20px) scale(0.5); opacity: 0; }
+          60% { transform: translateY(5px) scale(1.1); opacity: 0.8; }
+          100% { transform: translateY(0) scale(1); opacity: 1; }
+        }
+        @keyframes idleBounce {
+          0%, 100% { transform: translateY(0); }
+          50% { transform: translateY(-3px); }
+        }
+        @keyframes slimeBounce {
+          0%, 100% { transform: translateY(0) scaleX(1) scaleY(1); }
+          50% { transform: translateY(-4px) scaleX(0.95) scaleY(1.08); }
+        }
+        @keyframes dropFloat {
+          0% { transform: translateY(0); opacity: 1; }
+          50% { transform: translateY(-15px); opacity: 1; }
+          100% { transform: translateY(-30px); opacity: 0; }
+        }
+        @keyframes orePulse {
+          0% { transform: translateY(0) scale(0.9); opacity: 0.7; }
+          50% { transform: translateY(-6px) scale(1.05); opacity: 1; }
+          100% { transform: translateY(0) scale(0.9); opacity: 0.7; }
+        }
+      `}</style>
       <h2 style={{ color: '#ffd700', margin: '0 0 20px 0' }}>Project X7 Dev Simulator</h2>
 
       {/* 확률 설정 */}
@@ -1155,69 +1382,57 @@ export default function App() {
         </button>
       </div>
 
-      {/* 1~3T / 4~7T 좌우 배치 */}
-      <div style={{display: 'flex', gap: '10px', marginBottom: '10px'}}>
-        {/* 1~3T 영역 */}
-        <div style={{flex: 1, padding: '12px', backgroundColor: '#1a1a2e', borderRadius: '8px', border: '1px solid #333'}}>
-          <h4 style={{margin: '0 0 8px 0', color: '#81c784', textAlign: 'center', fontSize: '0.9rem'}}>1~3 Tier</h4>
-          <div style={{display: 'flex', gap: '8px'}}>
-            <div style={{flex: 1, display: 'flex', flexDirection: 'column', gap: '4px'}}>
-              <div style={{fontSize: '0.75rem', color: '#aaa', fontWeight: 'bold', marginBottom: '2px'}}>📦 드랍</div>
-              <button onClick={() => handleDrop(1)} style={actionBtn}>1T 드랍</button>
-              <button onClick={() => handleDrop(2)} style={actionBtn}>2T 드랍</button>
-              <button onClick={() => handleDrop(3)} style={actionBtn}>3T 드랍</button>
-            </div>
-            <div style={{flex: 1, display: 'flex', flexDirection: 'column', gap: '4px'}}>
-              <div style={{fontSize: '0.75rem', color: '#aaa', fontWeight: 'bold', marginBottom: '2px'}}>⛏️ 채집</div>
-              <button onClick={() => addOreToInventory(1, 100)} style={actionBtn}>1T 철 +100</button>
-              <button onClick={() => addOreToInventory(2, 100)} style={actionBtn}>2T 철 +100</button>
-              <button onClick={() => addOreToInventory(3, 100)} style={actionBtn}>3T 철 +100</button>
-            </div>
-            <div style={{flex: 2, display: 'flex', flexDirection: 'column', gap: '4px'}}>
-              <div style={{fontSize: '0.75rem', color: '#aaa', fontWeight: 'bold', marginBottom: '2px'}}>🛠️ 제작</div>
-              <button onClick={() => handleCraft(1)} style={actionBtn}>1T (1T철10)</button>
-              <button onClick={() => handleCraft(2)} style={actionBtn}>2T (2T철10)</button>
-              <button onClick={() => handleCraft(3)} style={actionBtn}>
-                3T (3T철10)
-              </button>
-            </div>
-          </div>
-        </div>
+      {/* 채집 */}
+      <div style={{padding: '8px 12px', backgroundColor: '#1a1a2e', borderRadius: '8px', border: '1px solid #333', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '8px'}}>
+        <span style={{fontSize: '0.75rem', color: '#aaa', fontWeight: 'bold'}}>⛏️ 채집</span>
+        {[1,2,3,4,5,6,7].map(t => (
+          <button key={t} onClick={() => addOreToInventory(t, 100)} style={actionBtn}>{t}T 철 +100</button>
+        ))}
+      </div>
 
-        {/* 4~7T 영역 */}
-        <div style={{flex: 1, padding: '12px', backgroundColor: '#2a1a1a', borderRadius: '8px', border: '1px solid #553333'}}>
-          <h4 style={{margin: '0 0 8px 0', color: '#ff9800', textAlign: 'center', fontSize: '0.9rem'}}>4~7 Tier</h4>
-          <div style={{display: 'flex', gap: '8px'}}>
-            <div style={{flex: 1, display: 'flex', flexDirection: 'column', gap: '4px'}}>
-              <div style={{fontSize: '0.75rem', color: '#aaa', fontWeight: 'bold', marginBottom: '2px'}}>📦 드랍</div>
-              <button onClick={() => handleDrop(4)} style={actionBtn}>4T 드랍</button>
-              <button onClick={() => handleDrop(5)} style={actionBtn}>5T 드랍</button>
-              <div style={{borderTop: '1px solid #555', margin: '2px 0'}}/>
-              <button onClick={() => handleDrop(6)} style={actionBtn}>6T 드랍</button>
+      {/* 드랍 + 제작 */}
+      <div style={{padding: '12px', backgroundColor: '#1a1a2e', borderRadius: '8px', border: '1px solid #333', marginBottom: '10px'}}>
+        <div style={{display: 'flex', gap: '8px'}}>
+          {/* 드랍 */}
+          <div style={{flex: 1, display: 'flex', flexDirection: 'column', gap: '4px'}}>
+            <div style={{fontSize: '0.75rem', color: '#aaa', fontWeight: 'bold', marginBottom: '2px'}}>📦 드랍</div>
+            <button onClick={() => handleDrop(1)} style={actionBtn}>1T 드랍</button>
+            <button onClick={() => handleDrop(2)} style={actionBtn}>2T 드랍</button>
+            <button onClick={() => handleDrop(3)} style={actionBtn}>3T 드랍</button>
+            <button onClick={() => handleDrop(4)} style={actionBtn}>4T 드랍</button>
+            <button onClick={() => handleDrop(5)} style={actionBtn}>5T 드랍</button>
+            <button onClick={() => handleDrop(6)} style={actionBtn}>6T 드랍</button>
+          </div>
+          {/* 제작 */}
+          <div style={{flex: 3, display: 'flex', flexDirection: 'column', gap: '4px'}}>
+            <div style={{fontSize: '0.75rem', color: '#aaa', fontWeight: 'bold', marginBottom: '2px'}}>🛠️ 제작</div>
+            <div style={{display: 'flex', gap: '4px'}}>
+              <button onClick={() => handleCraft(1)} style={{...actionBtn, flex: 1}}>1T 기본</button>
+              <div style={{flex: 1}}/><div style={{flex: 1}}/>
             </div>
-            <div style={{flex: 1, display: 'flex', flexDirection: 'column', gap: '4px'}}>
-              <div style={{fontSize: '0.75rem', color: '#aaa', fontWeight: 'bold', marginBottom: '2px'}}>⛏️ 채집</div>
-              <button onClick={() => addOreToInventory(4, 100)} style={actionBtn}>4T 철 +100</button>
-              <button onClick={() => addOreToInventory(5, 100)} style={actionBtn}>5T 철 +100</button>
-              <div style={{borderTop: '1px solid #555', margin: '2px 0'}}/>
-              <button onClick={() => addOreToInventory(6, 100)} style={actionBtn}>6T 철 +100</button>
-              <button onClick={() => addOreToInventory(7, 100)} style={actionBtn}>7T 철 +100</button>
+            <div style={{display: 'flex', gap: '4px'}}>
+              <button onClick={() => handleCraft(2)} style={{...actionBtn, flex: 1}}>2T 필드</button>
+              <div style={{flex: 1}}/><div style={{flex: 1}}/>
             </div>
-            <div style={{flex: 2, display: 'flex', flexDirection: 'column', gap: '4px'}}>
-              <div style={{fontSize: '0.75rem', color: '#aaa', fontWeight: 'bold', marginBottom: '2px'}}>🛠️ 제작</div>
-              <button onClick={() => handleCraft(4)} style={actionBtn}>
-                4T (4T철10)
-              </button>
-              <button onClick={() => handleCraft(5)} style={actionBtn}>
-                5T (5T철10)
-              </button>
-              <div style={{borderTop: '1px solid #555', margin: '2px 0'}}/>
-              <button onClick={() => handleCraft(6)} style={actionBtn}>
-                6T (6T철10)
-              </button>
-              <button onClick={() => handleCraft(7)} style={actionBtn}>
-                7T (7T철10)
-              </button>
+            <div style={{display: 'flex', gap: '4px'}}>
+              <button onClick={() => handleCraft(3)} style={{...actionBtn, flex: 1}}>3T 필드</button>
+              <button onClick={() => handleCraft(3)} style={{...actionBtn, flex: 1}}>3T 코어</button>
+              <div style={{flex: 1}}/>
+            </div>
+            <div style={{display: 'flex', gap: '4px'}}>
+              <button onClick={() => handleCraft(4)} style={{...actionBtn, flex: 1}}>4T 필드</button>
+              <button onClick={() => handleCraft(4)} style={{...actionBtn, flex: 1}}>4T 코어</button>
+              <div style={{flex: 1}}/>
+            </div>
+            <div style={{display: 'flex', gap: '4px'}}>
+              <button onClick={() => handleCraft(5)} style={{...actionBtn, flex: 1}}>5T 필드</button>
+              <button onClick={() => handleCraft(5)} style={{...actionBtn, flex: 1}}>5T 코어</button>
+              <button onClick={() => handleCraft(5)} style={{...actionBtn, flex: 1}}>5T 무역</button>
+            </div>
+            <div style={{display: 'flex', gap: '4px'}}>
+              <button onClick={() => handleCraft(6)} style={{...actionBtn, flex: 1}}>6T 필드</button>
+              <button onClick={() => handleCraft(6)} style={{...actionBtn, flex: 1}}>6T 코어</button>
+              <button onClick={() => handleCraft(6)} style={{...actionBtn, flex: 1}}>6T 무역</button>
             </div>
           </div>
         </div>
@@ -1263,6 +1478,113 @@ export default function App() {
         </div>
       </div>
 
+      {/* 사냥 시스템 */}
+      <div style={{padding: '12px', backgroundColor: '#1a1a2e', borderRadius: '8px', border: '1px solid #333', marginBottom: '10px'}}>
+        <div style={{display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '10px'}}>
+          <div style={{display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap'}}>
+            <span style={{fontSize: '0.85rem', fontWeight: 'bold', color: '#ef5350'}}>⚔️ 사냥터</span>
+            <div style={{display: 'flex', gap: '6px', flexWrap: 'wrap'}}>
+              <button
+                onClick={() => setSelectedHuntingTier(1)}
+                disabled={isHunting}
+                style={{
+                  ...actionBtn,
+                  backgroundColor: huntingTier === 1 ? '#c62828' : (selectedHuntingTier === 1 ? '#4a2a2a' : '#3a3a3a'),
+                  fontWeight: huntingTier === 1 || selectedHuntingTier === 1 ? 'bold' : 'normal',
+                  border: huntingTier === 1 ? '1px solid #ef5350' : selectedHuntingTier === 1 ? '1px solid #ff7043' : '1px solid #555',
+                  cursor: isHunting ? 'not-allowed' : 'pointer'
+                }}
+              >
+                1T 사냥터
+              </button>
+              {[2,3,4,5,6,7].map(t => (
+                <button key={t} disabled style={{...actionBtn, opacity: 0.4, cursor: 'not-allowed'}}>{t}T (준비중)</button>
+              ))}
+            </div>
+            <div style={{marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '8px'}}>
+              <button
+                onClick={() => isHunting ? stopHunting() : startHunting(selectedHuntingTier)}
+                style={{
+                  ...actionBtn,
+                  backgroundColor: isHunting ? '#555' : '#2e7d32',
+                  fontWeight: 'bold'
+                }}
+              >
+                {isHunting ? '사냥 중지' : '사냥 시작'}
+              </button>
+              <span style={{fontSize: '0.75rem', color: isHunting ? '#aaa' : '#555'}}>처치: {killCount}마리</span>
+            </div>
+          </div>
+        </div>
+
+        <div style={{position: 'relative', height: '120px', backgroundColor: '#0a0a1a', borderRadius: '6px', border: '1px solid #222', overflow: 'hidden'}}>
+          {/* 바닥 */}
+          <div style={{position: 'absolute', bottom: 0, left: 0, right: 0, height: '20px', backgroundColor: '#1a3a1a', borderTop: '2px solid #2e7d32'}} />
+
+          {/* 캐릭터 */}
+          <div style={{
+            position: 'absolute', bottom: '25px', left: '80px',
+            animation: battlePhase === 'attack' ? 'attackSwing 0.8s ease-in-out' : battlePhase === 'idle' ? 'idleBounce 1.5s ease-in-out infinite' : 'none'
+          }}>
+            <div style={{position: 'relative', width: `${12 * PIXEL}px`, height: `${16 * PIXEL}px`}}>
+              <div style={pixelArt(heroPixels)} />
+            </div>
+          </div>
+
+          {/* 몬스터 */}
+          <div style={{
+            position: 'absolute', bottom: '25px', right: '80px',
+            animation: battlePhase === 'hit' ? 'monsterHit 0.7s ease-in-out' :
+                       battlePhase === 'dead' ? 'monsterDeath 1s ease-in forwards' :
+                       battlePhase === 'spawn' ? 'monsterSpawn 0.5s ease-out' :
+                       'slimeBounce 1.2s ease-in-out infinite'
+          }}>
+            <div style={{position: 'relative', width: `${10 * PIXEL}px`, height: `${8 * PIXEL}px`}}>
+              <div style={pixelArt(slimePixels)} />
+            </div>
+            <div style={{textAlign: 'center', fontSize: '0.65rem', color: '#aaa', marginTop: `${8 * PIXEL + 4}px`}}>{displayHuntingTier}T 슬라임</div>
+          </div>
+
+          {/* 드랍 이펙트 */}
+          {battlePhase === 'dead' && isHunting && (
+            <div style={{position: 'absolute', bottom: '50px', right: '90px', animation: 'dropFloat 1s ease-out forwards', fontSize: '0.8rem', color: '#ffd700', fontWeight: 'bold'}}>
+              💥
+            </div>
+          )}
+
+          {/* 광물 스폰 */}
+          {spawnedOres.map(ore => (
+            <div
+              key={ore.id}
+              onClick={() => handleOreCollect(ore.id)}
+              style={{
+                position: 'absolute',
+                bottom: '38px',
+                left: `calc(50% + ${ORE_SLOT_OFFSETS[ore.slot]}px)`,
+                transform: 'translateX(-50%)',
+                cursor: 'pointer'
+              }}
+            >
+              <div style={{animation: 'orePulse 1.4s ease-in-out infinite', fontSize: '1.1rem', color: '#ffe082', textShadow: '0 0 6px rgba(255, 208, 90, 0.85)'}}>
+                ⛏️
+              </div>
+            </div>
+          ))}
+
+          {/* 안내 오버레이 */}
+          {!isHunting && (
+            <div style={{position: 'absolute', inset: 0, backgroundColor: 'rgba(10,10,26,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#bbb', fontSize: '0.85rem'}}>
+              사냥 시작을 눌러 전투를 시작하세요
+            </div>
+          )}
+
+          {/* 사냥 정보 */}
+          <div style={{position: 'absolute', top: '5px', left: '10px', fontSize: '0.7rem', color: '#666'}}>
+            {isHunting ? `${huntingTier}T 사냥터 · 드랍률 1%` : `${displayHuntingTier}T 사냥터 · 대기중`}
+          </div>
+        </div>
+      </div>
+
       <div style={{ display: 'flex', gap: '20px' }}>
         <div style={inventoryPanel}>
           <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px'}}>
@@ -1294,11 +1616,21 @@ export default function App() {
               </button>
             </div>
           </div>
-          {/* 숯돌 표시 */}
-          <div style={{display: 'flex', gap: '12px', marginBottom: '10px', padding: '6px 10px', backgroundColor: '#2a2a2a', borderRadius: '4px', fontSize: '0.8rem'}}>
-            <span style={{color: '#a5d6a7'}}>🔹 하급 숯돌: <b>{upgradeStones.low}</b></span>
-            <span style={{color: '#90caf9'}}>🔷 중급 숯돌: <b>{upgradeStones.mid}</b></span>
-            <span style={{color: '#ffab91'}}>🔶 상급 숯돌: <b>{upgradeStones.high}</b></span>
+          {/* 숯돌 + 세공석 표시 */}
+          <div style={{marginBottom: '10px', padding: '8px 10px', backgroundColor: '#2a2a2a', borderRadius: '6px', fontSize: '0.8rem'}}>
+            <div style={{display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '6px'}}>
+              <span style={{color: '#a5d6a7'}}>🔹 하급숯돌: <b>{upgradeStones.low}</b></span>
+              <button onClick={() => convertToPolishStone('low')} disabled={upgradeStones.low < 100} style={{...actionBtn, fontSize: '0.7rem', padding: '2px 6px', backgroundColor: upgradeStones.low >= 100 ? '#2e7d32' : '#333', color: upgradeStones.low >= 100 ? '#fff' : '#666', cursor: upgradeStones.low >= 100 ? 'pointer' : 'not-allowed'}}>변환 (100→1)</button>
+              <span style={{color: '#555'}}>|</span>
+              <span style={{color: '#90caf9'}}>🔷 중급숯돌: <b>{upgradeStones.mid}</b></span>
+              <button onClick={() => convertToPolishStone('mid')} disabled={upgradeStones.mid < 10} style={{...actionBtn, fontSize: '0.7rem', padding: '2px 6px', backgroundColor: upgradeStones.mid >= 10 ? '#1565c0' : '#333', color: upgradeStones.mid >= 10 ? '#fff' : '#666', cursor: upgradeStones.mid >= 10 ? 'pointer' : 'not-allowed'}}>변환 (10→1)</button>
+              <span style={{color: '#555'}}>|</span>
+              <span style={{color: '#ffab91'}}>🔶 상급숯돌: <b>{upgradeStones.high}</b></span>
+              <button onClick={() => convertToPolishStone('high')} disabled={upgradeStones.high < 1} style={{...actionBtn, fontSize: '0.7rem', padding: '2px 6px', backgroundColor: upgradeStones.high >= 1 ? '#e65100' : '#333', color: upgradeStones.high >= 1 ? '#fff' : '#666', cursor: upgradeStones.high >= 1 ? 'pointer' : 'not-allowed'}}>변환 (1→1)</button>
+            </div>
+            <div style={{display: 'flex', gap: '10px', alignItems: 'center', paddingTop: '6px', borderTop: '1px solid #3a3a3a'}}>
+              <span style={{color: '#e1bee7', fontWeight: 'bold'}}>💎 세공석: <b style={{fontSize: '1rem', color: '#ce93d8'}}>{polishStones}</b></span>
+            </div>
           </div>
           <div style={itemGrid}>
             {inventory.map(item => (
