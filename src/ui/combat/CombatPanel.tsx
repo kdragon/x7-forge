@@ -182,8 +182,9 @@ export default function CombatPanel(props: CombatPanelProps) {
     characterMaxHP,
     characterHP,
     characterBaseAttack,
+    characterBaseDefense,
     inventory,
-    equippedItemId,
+    equippedWeaponId,
     monsterMaxHP,
     monsterHP,
     monsterAttack,
@@ -203,7 +204,7 @@ export default function CombatPanel(props: CombatPanelProps) {
     lootDropRate,
   } = useGameState();
   const expToNextLevel = getExpForLevel(characterLevel + 1);
-  const characterDefense = 0;
+  const characterDefense = characterBaseDefense;
   const isHunting = huntingTier !== null;
   const displayHuntingTier = huntingTier ?? selectedHuntingTier;
   const dropRatePercent = lootDropRate;
@@ -214,8 +215,8 @@ export default function CombatPanel(props: CombatPanelProps) {
   const skillCooldownMaxSeconds = 10;
   const skillCooldownSeconds = Math.max(0, Math.ceil(skillCooldownLeftMs / 1000));
   const showSkillCooldown = isSkillOnCooldown && skillCooldownSeconds < skillCooldownMaxSeconds;
-  const equippedItem = equippedItemId !== null
-    ? inventory.find(item => item.id === equippedItemId)
+  const equippedItem = equippedWeaponId !== null
+    ? inventory.find(item => item.id === equippedWeaponId)
     : null;
   const equippedSkill = equippedItem && !equippedItem.isStackable ? equippedItem.skill : null;
 

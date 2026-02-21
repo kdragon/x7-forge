@@ -32,6 +32,16 @@ export const GRADE_BONUS_BY_GRADE: Record<Item['grade'], number> = {
   '유물': 120,
 };
 
+export const DEFENSE_GRADE_BONUS_BY_GRADE: Record<Item['grade'], number> = {
+  '일반': 0,
+  '고급': 40,
+  '희귀': 80,
+  '고대': 120,
+  '영웅': 160,
+  '유일': 200,
+  '유물': 240,
+};
+
 export const ENHANCE_BONUS_PER_TIER: Record<number, number> = {
   1: 8,
   2: 10,
@@ -40,6 +50,16 @@ export const ENHANCE_BONUS_PER_TIER: Record<number, number> = {
   5: 16,
   6: 18,
   7: 20,
+};
+
+export const DEFENSE_ENHANCE_BONUS_PER_TIER: Record<number, number> = {
+  1: 16,
+  2: 20,
+  3: 24,
+  4: 32,
+  5: 44,
+  6: 56,
+  7: 68,
 };
 
 export const BONUS_ATTACK_RANGES: Record<number, [number, number]> = {
@@ -53,19 +73,19 @@ export const BONUS_ATTACK_RANGES: Record<number, [number, number]> = {
 };
 
 export const BASE_DEFENSE_BY_TIER: Record<number, number> = {
-  1: 90,
-  2: 245,
-  3: 460,
-  4: 590,
-  5: 800,
-  6: 1000,
-  7: 1270,
+  1: 120,
+  2: 160,
+  3: 240,
+  4: 360,
+  5: 520,
+  6: 720,
+  7: 960,
 };
 
 export const calculateDefense = (tier: number, grade: string, enhance: number): number => {
   const base = BASE_DEFENSE_BY_TIER[tier] ?? 90;
-  const gradeBonus = GRADE_BONUS_BY_GRADE[grade as Item['grade']] ?? 0;
-  const enhanceBonus = enhance * (ENHANCE_BONUS_PER_TIER[tier] ?? 10);
+  const gradeBonus = DEFENSE_GRADE_BONUS_BY_GRADE[grade as Item['grade']] ?? 0;
+  const enhanceBonus = enhance * (DEFENSE_ENHANCE_BONUS_PER_TIER[tier] ?? 10);
   return base + gradeBonus + enhanceBonus;
 };
 

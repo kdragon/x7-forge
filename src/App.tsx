@@ -46,7 +46,9 @@ export default function App() {
     characterMaxHP,
     characterHP,
     characterBaseAttack,
-    equippedItemId,
+    characterBaseDefense,
+    equippedWeaponId,
+    equippedArmorId,
     monsterHP,
     monsterAttack,
     monsterDefense,
@@ -95,7 +97,9 @@ export default function App() {
   const setCharacterMaxHP = (value: number | ((prev: number) => number)) => setField('characterMaxHP', value);
   const setCharacterHP = (value: number | ((prev: number) => number)) => setField('characterHP', value);
   const setCharacterBaseAttack = (value: number | ((prev: number) => number)) => setField('characterBaseAttack', value);
-  const setEquippedItemId = (value: number | null | ((prev: number | null) => number | null)) => setField('equippedItemId', value);
+  const setCharacterBaseDefense = (value: number | ((prev: number) => number)) => setField('characterBaseDefense', value);
+  const setEquippedWeaponId = (value: number | null | ((prev: number | null) => number | null)) => setField('equippedWeaponId', value);
+  const setEquippedArmorId = (value: number | null | ((prev: number | null) => number | null)) => setField('equippedArmorId', value);
   const setMonsterMaxHP = (value: number | ((prev: number) => number)) => setField('monsterMaxHP', value);
   const setMonsterHP = (value: number | ((prev: number) => number)) => setField('monsterHP', value);
   const setMonsterAttack = (value: number | ((prev: number) => number)) => setField('monsterAttack', value);
@@ -146,12 +150,13 @@ export default function App() {
   const oreSpawnTimeoutRef = useRef<number | null>(null);
   const potionCooldownRef = useRef<number>(0); // ms 타임스탬프
   const characterHPRef = useRef<number>(1500); // 포션 체크용 HP 레퍼런스
+  const characterDefenseRef = useRef<number>(characterBaseDefense);
   const monsterHPRef = useRef<number>(0);
   const skillCooldownRef = useRef<number>(0);
   const lastMonsterSpawnRef = useRef<number>(0);
 
-  const equippedItemForSkill = equippedItemId !== null
-    ? inventory.find(item => item.id === equippedItemId)
+  const equippedItemForSkill = equippedWeaponId !== null
+    ? inventory.find(item => item.id === equippedWeaponId)
     : null;
   const equippedSkill = equippedItemForSkill && !equippedItemForSkill.isStackable
     ? equippedItemForSkill.skill
@@ -172,7 +177,7 @@ export default function App() {
   }, [
     inventory, characterLevel, characterExp, characterMaxHP, characterHP,
     characterBaseAttack, upgradeStones, polishStones, inlandTradeCoins,
-    seaTradeCoins, consumedItems, equippedItemId, killCount
+    seaTradeCoins, consumedItems, equippedWeaponId, equippedArmorId, killCount
   ]);
 
   // 세션 리셋 핸들러
@@ -476,8 +481,6 @@ export default function App() {
   };
 
   // 1초마다 몬스터 → 캐릭터 공격 (방어도 적용)
-  const characterDefense = 0; // 추후 장비/레벨에 따라 확장 가능
-
   useEffect(() => {
     if (!huntingTier) return;
     if (characterHPRef.current <= 0) return;
@@ -487,7 +490,7 @@ export default function App() {
       setCharacterHP(prev => {
         if (prev <= 0) return prev;
         if (monsterHPRef.current <= 0) return prev;
-        const damage = calculateDamage(monsterAttack, characterDefense);
+        const damage = calculateDamage(monsterAttack, characterDefenseRef.current);
         if (damage > 0) {
           pushCharacterDamage(damage);
         }
@@ -511,6 +514,10 @@ export default function App() {
   useEffect(() => {
     characterHPRef.current = characterHP;
   }, [characterHP]);
+
+  useEffect(() => {
+    characterDefenseRef.current = characterBaseDefense;
+  }, [characterBaseDefense]);
 
   useEffect(() => {
     monsterHPRef.current = monsterHP;
@@ -560,39 +567,58 @@ export default function App() {
   const handleEquip = (item: Item | null) => {
     if (!item || item.isStackable) return;
 
-    if (equippedItemId === item.id) {
-      // 장착 해제
-      setEquippedItemId(null);
-      setCharacterBaseAttack(60); // 기본 공격력으로 복구
+    if (item.itemType === 'armor') {
+      if (equippedArmorId === item.id) {
+        setEquippedArmorId(null);
+        setCharacterBaseDefense(0);
+        addLog(`[장착해제] ${item.name} 장착 해제됨`);
+      } else {
+        setEquippedArmorId(item.id);
+        setCharacterBaseDefense((item.defense ?? 0) + (item.bonusDefense ?? 0));
+        addLog(`[장착] ${item.name} (방어도 ${(item.defense ?? 0) + (item.bonusDefense ?? 0)}) 장착됨`);
+      }
+      return;
+    }
+
+    // 무기
+    if (equippedWeaponId === item.id) {
+      setEquippedWeaponId(null);
+      setCharacterBaseAttack(60);
       addLog(`[장착해제] ${item.name} 장착 해제됨`);
       return;
     }
 
-    setEquippedItemId(item.id);
+    setEquippedWeaponId(item.id);
     setCharacterBaseAttack(item.attack + item.bonusAttack);
     addLog(`[장착] ${item.name} (공격력 ${item.attack + item.bonusAttack}) 장착됨`);
   };
 
   // 장착 중인 아이템이 승급/강화/파괴될 때 실시간으로 ATK에 반영
   useEffect(() => {
-    // 장착 아이템이 없으면 기본 공격력 유지
-    if (!equippedItemId) {
+    if (!equippedWeaponId) {
       setCharacterBaseAttack(60);
-      return;
+    } else {
+      const weapon = inventory.find(it => it.id === equippedWeaponId);
+      if (!weapon || weapon.isStackable) {
+        setEquippedWeaponId(null);
+        setCharacterBaseAttack(60);
+      } else {
+        setCharacterBaseAttack(weapon.attack + weapon.bonusAttack);
+      }
     }
 
-    const equipped = inventory.find(it => it.id === equippedItemId);
-
-    // 인벤토리에서 사라졌거나 잘못된 상태면 장착 해제 + 기본 공격력
-    if (!equipped || equipped.isStackable) {
-      setEquippedItemId(null);
-      setCharacterBaseAttack(60);
-      return;
+    if (!equippedArmorId) {
+      setCharacterBaseDefense(0);
+    } else {
+      const armor = inventory.find(it => it.id === equippedArmorId);
+      if (!armor || armor.isStackable) {
+        setEquippedArmorId(null);
+        setCharacterBaseDefense(0);
+      } else {
+        setCharacterBaseDefense((armor.defense ?? 0) + (armor.bonusDefense ?? 0));
+      }
     }
-
-    // 승급/강화로 공격력이 변한 경우 최신 값으로 동기화
-    setCharacterBaseAttack(equipped.attack + equipped.bonusAttack);
-  }, [inventory, equippedItemId]);
+  }, [inventory, equippedWeaponId, equippedArmorId]);
 
   // --- 철광석 헬퍼 함수 (core/inventory.ts 래퍼) ---
   const getOreCount = (tier: number) => {
@@ -1086,7 +1112,8 @@ export default function App() {
         ? {
             ...item,
             grade: nextGrade,
-            attack: calculateAttack(item.tier, nextGrade, item.enhance),
+            attack: item.itemType === 'armor' ? 0 : calculateAttack(item.tier, nextGrade, item.enhance),
+            defense: item.itemType === 'armor' ? calculateDefense(item.tier, nextGrade, item.enhance) : item.defense,
             exp: 0
           }
         : item
@@ -1098,7 +1125,8 @@ export default function App() {
       prev ? {
         ...prev,
         grade: nextGrade,
-        attack: calculateAttack(prev.tier, nextGrade, prev.enhance),
+        attack: prev.itemType === 'armor' ? 0 : calculateAttack(prev.tier, nextGrade, prev.enhance),
+        defense: prev.itemType === 'armor' ? calculateDefense(prev.tier, nextGrade, prev.enhance) : prev.defense,
         exp: 0
       } : null
     );
