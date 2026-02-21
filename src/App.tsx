@@ -238,13 +238,14 @@ export default function App() {
   const handleMonsterKilled = useCallback((tier: number) => {
     setKillCount(prev => prev + 1);
 
-    const missingHp = Math.max(0, characterMaxHP - characterHPRef.current);
-    const healAmount = Math.min(monsterAttack + monsterDefense, missingHp);
-    if (healAmount > 0) {
-      pushHealEvent(healAmount);
-      setCharacterHP(prev => Math.min(characterMaxHP, prev + healAmount));
-      addLog(`[회복] 몬스터 처치 (ATK+DEF · +${healAmount} 회복)`);
-    }
+    // NOTE: Temporarily disable heal-on-kill (ATK+DEF) to pause recovery.
+    // const missingHp = Math.max(0, characterMaxHP - characterHPRef.current);
+    // const healAmount = Math.min(monsterAttack + monsterDefense, missingHp);
+    // if (healAmount > 0) {
+    //   pushHealEvent(healAmount);
+    //   setCharacterHP(prev => Math.min(characterMaxHP, prev + healAmount));
+    //   addLog(`[회복] 몬스터 처치 (ATK+DEF · +${healAmount} 회복)`);
+    // }
 
     const { baseExp } = getMonsterBaseStats(tier);
 
