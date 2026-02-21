@@ -2,7 +2,7 @@ import { createContext, useContext, useMemo, useReducer } from 'react';
 import type { ReactNode } from 'react';
 import type { GameState } from './gameTypes';
 import { gameReducer } from './gameReducer';
-import { DEFAULT_CRAFT_RATES, DEFAULT_DROP_RATES, DEFAULT_LOOT_DROP_RATE } from '../config/gameDefaults';
+import { DEFAULT_CRAFT_RATES, DEFAULT_DROP_RATES, DEFAULT_HUNTING_DROP_RATES, DEFAULT_LOOT_DROP_RATES } from '../config/gameDefaults';
 import { DEFAULT_ENHANCE_RATES, DEFAULT_PROTECTION_PRICE } from '../config/enhanceRules';
 
 const createInitialState = (): GameState => ({
@@ -22,7 +22,9 @@ const createInitialState = (): GameState => ({
   characterMaxHP: 1500,
   characterHP: 1500,
   characterBaseAttack: 60,
-  equippedItemId: null,
+  characterBaseDefense: 0,
+  equippedWeaponId: null,
+  equippedArmorId: null,
 
   monsterMaxHP: 346,
   monsterHP: 346,
@@ -37,7 +39,8 @@ const createInitialState = (): GameState => ({
   enhanceRates: DEFAULT_ENHANCE_RATES,
   protectionPrice: DEFAULT_PROTECTION_PRICE,
   usedProtectionCount: 0,
-  lootDropRate: DEFAULT_LOOT_DROP_RATE,
+  lootDropRates: DEFAULT_LOOT_DROP_RATES,
+  huntingDropRates: DEFAULT_HUNTING_DROP_RATES,
   consumedItems: {
     '1T제작': 0, '1T드랍': 0,
     '2T제작': 0, '2T드랍': 0,

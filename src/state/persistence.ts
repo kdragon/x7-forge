@@ -25,11 +25,23 @@ const coerceSavedData = (data: unknown): Partial<GameState> => {
   if (typeof record.polishStones === 'number') partial.polishStones = record.polishStones;
   if (typeof record.inlandTradeCoins === 'number') partial.inlandTradeCoins = record.inlandTradeCoins;
   if (typeof record.seaTradeCoins === 'number') partial.seaTradeCoins = record.seaTradeCoins;
+  if (record.lootDropRates && typeof record.lootDropRates === 'object') {
+    partial.lootDropRates = record.lootDropRates as GameState['lootDropRates'];
+  } else if (typeof record.lootDropRate === 'number') {
+    const value = record.lootDropRate as number;
+    partial.lootDropRates = { 1: 0, 2: value, 3: value, 4: value, 5: value, 6: value, 7: value };
+  }
+  if (record.huntingDropRates && typeof record.huntingDropRates === 'object') {
+    partial.huntingDropRates = record.huntingDropRates as GameState['huntingDropRates'];
+  }
   if (record.consumedItems && typeof record.consumedItems === 'object') {
     partial.consumedItems = record.consumedItems as GameState['consumedItems'];
   }
-  if (typeof record.equippedItemId === 'number' || record.equippedItemId === null) {
-    partial.equippedItemId = record.equippedItemId as GameState['equippedItemId'];
+  if (typeof record.equippedWeaponId === 'number' || record.equippedWeaponId === null) {
+    partial.equippedWeaponId = record.equippedWeaponId as GameState['equippedWeaponId'];
+  }
+  if (typeof record.equippedArmorId === 'number' || record.equippedArmorId === null) {
+    partial.equippedArmorId = record.equippedArmorId as GameState['equippedArmorId'];
   }
   if (typeof record.killCount === 'number') partial.killCount = record.killCount;
 
@@ -72,8 +84,11 @@ export const saveGame = (state: GameState): void => {
     polishStones: state.polishStones,
     inlandTradeCoins: state.inlandTradeCoins,
     seaTradeCoins: state.seaTradeCoins,
+    lootDropRates: state.lootDropRates,
+    huntingDropRates: state.huntingDropRates,
     consumedItems: state.consumedItems,
-    equippedItemId: state.equippedItemId,
+    equippedWeaponId: state.equippedWeaponId,
+    equippedArmorId: state.equippedArmorId,
     killCount: state.killCount,
   };
   const payload: SavedGameV1 = { version: SAVE_VERSION, data };

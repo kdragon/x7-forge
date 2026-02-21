@@ -201,13 +201,13 @@ export default function CombatPanel(props: CombatPanelProps) {
     skillEffects,
     potionCooldownLeftMs,
     skillCooldownLeftMs,
-    lootDropRate,
+    lootDropRates,
   } = useGameState();
   const expToNextLevel = getExpForLevel(characterLevel + 1);
   const characterDefense = characterBaseDefense;
   const isHunting = huntingTier !== null;
   const displayHuntingTier = huntingTier ?? selectedHuntingTier;
-  const dropRatePercent = lootDropRate;
+  const dropRatePercent = lootDropRates[displayHuntingTier] ?? 0;
   const potionConfig = DEFAULT_POTION_CONFIG;
   const isPotionOnCooldown = potionCooldownLeftMs > 0;
   const potionCooldownSeconds = Math.max(0, Math.ceil(potionCooldownLeftMs / 1000));

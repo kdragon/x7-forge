@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Item, EcoMode } from './shared/types';
 import { getOreCount as getOreCountCore, addOreToInventory as addOreToInventoryCore, consumeOre as consumeOreCore } from './core/inventory';
 import { getDisassembleStones, getUpgradeCost, getNextGrade } from './core/enhance';
-import { getMonsterBaseStats, HUNTING_DROP_RATE, calculateDamage, type BattlePhase } from './core/combat';
+import { getMonsterBaseStats, calculateDamage, type BattlePhase } from './core/combat';
 import { applyExpGain } from './core/combatEngine';
 import { DEFAULT_POTION_CONFIG } from './core/potion';
 import { enhanceItem } from './core/enhanceEngine';
@@ -24,7 +24,7 @@ import type { GameState } from './state/gameTypes';
 import { useGameActions } from './state/useGameActions';
 import { useGameState } from './state/useGameState';
 import { clearGame, loadGame, saveGame } from './state/persistence';
-import { formatBonusAttack, formatBonusDefense, getGradeColor } from './ui/shared/itemUi';
+import { formatBonusAttack, getGradeColor } from './ui/shared/itemUi';
 import { actionBtn, btnStyle, infoText, itemCard, logPanel } from './ui/shared/styles';
 
 export default function App() {
@@ -62,7 +62,8 @@ export default function App() {
     enhanceRates,
     protectionPrice,
     usedProtectionCount,
-    lootDropRate,
+    lootDropRates,
+    huntingDropRates,
     consumedItems,
     huntingTier,
     selectedHuntingTier,
@@ -115,7 +116,8 @@ export default function App() {
   const setEnhanceRates = useCallback((value: number[] | ((prev: number[]) => number[])) => setField('enhanceRates', value), [setField]);
   const setProtectionPrice = useCallback((value: number | ((prev: number) => number)) => setField('protectionPrice', value), [setField]);
   const setUsedProtectionCount = useCallback((value: number | ((prev: number) => number)) => setField('usedProtectionCount', value), [setField]);
-  const setLootDropRate = useCallback((value: number | ((prev: number) => number)) => setField('lootDropRate', value), [setField]);
+  const setLootDropRates = useCallback((value: Record<number, number> | ((prev: Record<number, number>) => Record<number, number>)) => setField('lootDropRates', value), [setField]);
+  const setHuntingDropRates = useCallback((value: Record<number, number> | ((prev: Record<number, number>) => Record<number, number>)) => setField('huntingDropRates', value), [setField]);
   const setConsumedItems = useCallback((value: GameState['consumedItems'] | ((prev: GameState['consumedItems']) => GameState['consumedItems'])) => setField('consumedItems', value), [setField]);
   const setHuntingTier = useCallback((value: number | null | ((prev: number | null) => number | null)) => setField('huntingTier', value), [setField]);
   const setSelectedHuntingTier = useCallback((value: number | ((prev: number) => number)) => setField('selectedHuntingTier', value), [setField]);
@@ -183,7 +185,8 @@ export default function App() {
   }, [
     inventory, characterLevel, characterExp, characterMaxHP, characterHP,
     characterBaseAttack, upgradeStones, polishStones, inlandTradeCoins,
-    seaTradeCoins, consumedItems, equippedWeaponId, equippedArmorId, killCount, state
+    seaTradeCoins, consumedItems, equippedWeaponId, equippedArmorId, killCount,
+    lootDropRates, huntingDropRates, state
   ]);
 
   // 세션 리셋 핸들러
@@ -254,7 +257,8 @@ export default function App() {
       if (tier === 1) {
         return prev;
       }
-      if (Math.random() < (lootDropRate / 100)) {
+      const lootRate = (lootDropRates[tier] ?? 0) / 100;
+      if (Math.random() < lootRate) {
         const lootTier = tier;
         const lootName = `${lootTier}T 전리품`;
         const updated = prev.map(item => ({ ...item }));
@@ -305,7 +309,7 @@ export default function App() {
     addLog,
     characterLevel,
     characterMaxHP,
-    lootDropRate,
+    lootDropRates,
     monsterAttack,
     monsterDefense,
     pushHealEvent,
@@ -422,8 +426,9 @@ export default function App() {
             // 처치 처리 (킬 카운트, 경험치, 레벨업)
             handleMonsterKilled(currentTier);
 
-            // 드랍 판정: 1% 확률 (1T 드랍템은 존재하지 않음)
-            if (currentTier > 1 && Math.random() < HUNTING_DROP_RATE) {
+            // 드랍 판정: 티어별 확률 (1T 드랍템은 존재하지 않음)
+            const huntDropRate = (huntingDropRates[currentTier] ?? 0) / 100;
+            if (currentTier > 1 && Math.random() < huntDropRate) {
               setInventory(prevInv => {
                 if (prevInv.length >= 300) return prevInv;
                 const tierMax = getMaxGradeForTier(currentTier);
@@ -496,6 +501,7 @@ export default function App() {
     equippedSkill,
     handleMonsterKilled,
     huntingTier,
+    huntingDropRates,
     monsterDefense,
     pushHealEvent,
     setBattlePhase,
@@ -1567,21 +1573,56 @@ export default function App() {
               {/* 전리품 드랍 확률 */}
               <div style={{minWidth: 0}}>
                 <h4 style={{margin: '0 0 10px 0', color: '#ffd166'}}>🎁 전리품 드랍 확률</h4>
-                <div style={{display: 'flex', gap: '10px', alignItems: 'center'}}>
-                  <label style={{fontSize: '0.85rem', marginRight: '5px'}}>전리품:</label>
-                  <input
-                    type="number"
-                    value={lootDropRate}
-                    onChange={(e) => setLootDropRate(Math.max(0, Math.min(100, parseFloat(e.target.value) || 0)))}
-                    step="0.01"
-                    min="0"
-                    max="100"
-                    style={compactInputStyle}
-                  />
-                  <span style={{fontSize: '0.85rem', marginLeft: '3px'}}>%</span>
+                <div style={{display: 'flex', gap: '10px', flexWrap: 'wrap'}}>
+                  {[1, 2, 3, 4, 5, 6, 7].map((tier) => (
+                    <div key={`loot-rate-${tier}`}>
+                      <label style={{fontSize: '0.85rem', marginRight: '5px'}}>{tier}T:</label>
+                      <input
+                        type="number"
+                        value={lootDropRates[tier] ?? 0}
+                        onChange={(e) => {
+                          const nextValue = Math.max(0, Math.min(100, parseFloat(e.target.value) || 0));
+                          setLootDropRates(prev => ({ ...prev, [tier]: nextValue }));
+                        }}
+                        step="0.1"
+                        min="0"
+                        max="100"
+                        style={compactInputStyle}
+                      />
+                      <span style={{fontSize: '0.85rem', marginLeft: '3px'}}>%</span>
+                    </div>
+                  ))}
                 </div>
                 <div style={{marginTop: '6px', padding: '8px', backgroundColor: '#2a2a2a', borderRadius: '4px', fontSize: '0.8rem', color: '#ffd166', fontWeight: 'bold'}}>
-                  기본값 100% (1T 사냥터는 2T 전리품 드랍)
+                  몬스터 처치 시 전리품이 드랍되는 확률
+                </div>
+              </div>
+
+              {/* 사냥터 드랍 확률 */}
+              <div style={{minWidth: 0}}>
+                <h4 style={{margin: '0 0 10px 0', color: '#4dd0e1'}}>⚔️ 사냥터 드랍 확률</h4>
+                <div style={{display: 'flex', gap: '10px', flexWrap: 'wrap'}}>
+                  {[1, 2, 3, 4, 5, 6, 7].map((tier) => (
+                    <div key={`hunt-rate-${tier}`}>
+                      <label style={{fontSize: '0.85rem', marginRight: '5px'}}>{tier}T:</label>
+                      <input
+                        type="number"
+                        value={huntingDropRates[tier] ?? 0}
+                        onChange={(e) => {
+                          const nextValue = Math.max(0, Math.min(100, parseFloat(e.target.value) || 0));
+                          setHuntingDropRates(prev => ({ ...prev, [tier]: nextValue }));
+                        }}
+                        step="0.1"
+                        min="0"
+                        max="100"
+                        style={compactInputStyle}
+                      />
+                      <span style={{fontSize: '0.85rem', marginLeft: '3px'}}>%</span>
+                    </div>
+                  ))}
+                </div>
+                <div style={{marginTop: '6px', padding: '8px', backgroundColor: '#2a2a2a', borderRadius: '4px', fontSize: '0.8rem', color: '#4dd0e1', fontWeight: 'bold'}}>
+                  몬스터 처치 시 장비(무기/방어구) 드랍 확률
                 </div>
               </div>
 
@@ -2303,9 +2344,7 @@ export default function App() {
                             )}
                           </div>
                           <div style={{fontSize: '0.75rem', color: '#aaa'}}>
-                            {item.itemType === 'armor'
-                              ? `방: ${item.defense ?? 0} | 추가방어력: ${formatBonusDefense(item)}`
-                              : `공격: ${item.attack} | 추가공격력: ${formatBonusAttack(item)}`}
+                            공격: {item.attack} | 추가공격력: {formatBonusAttack(item)}
                           </div>
                         </div>
                       </div>

@@ -40,7 +40,9 @@ export interface GameState {
   characterMaxHP: number;
   characterHP: number;
   characterBaseAttack: number;
-  equippedItemId: number | null;
+  characterBaseDefense: number;
+  equippedWeaponId: number | null;
+  equippedArmorId: number | null;
 
   monsterMaxHP: number;
   monsterHP: number;
@@ -55,7 +57,8 @@ export interface GameState {
   enhanceRates: number[];
   protectionPrice: number;
   usedProtectionCount: number;
-  lootDropRate: number;
+  lootDropRates: Record<number, number>;
+  huntingDropRates: Record<number, number>;
   consumedItems: ConsumedItems;
 
   huntingTier: number | null;
