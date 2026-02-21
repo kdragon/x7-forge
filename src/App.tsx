@@ -402,14 +402,16 @@ export default function App() {
                 const isSR = currentTier >= 3 && Math.random() < (dropRates.sr / 100);
                 const newItem: Item = {
                   id: Date.now() + Math.random(),
-                  name: `${currentTier}T 드랍템`,
+                  name: `${currentTier}T 드랍템 무기`,
                   tier: currentTier,
                   grade,
                   attack: calculateAttack(currentTier, grade, 0),
                   bonusAttack: rollBonusAttack(currentTier),
                   skill: isSR ? 'SR' : 'R',
                   slots: 0,
-                  enhance: 0
+                  enhance: 0,
+                  itemType: 'weapon',
+                  itemSource: 'drop',
                 };
                 setTimeout(() => {
                   addLog(`[사냥] ${currentTier}T 드랍템(${grade}) 획득!`);
@@ -674,14 +676,16 @@ export default function App() {
 
     const newItem: Item = {
       id: Date.now() + Math.random(),
-      name: `${tier}T 드랍템`,
+      name: `${tier}T 드랍템 무기`,
       tier,
       grade,
       attack: calculateAttack(tier, grade, 0),
       bonusAttack: rollBonusAttack(tier),
       skill: isSR ? 'SR' : 'R',
       slots: 0,
-      enhance: 0
+      enhance: 0,
+      itemType: 'weapon',
+      itemSource: 'drop',
     };
     setInventory(prev => [...prev, newItem]);
     if (newItem.attack > 0) {
@@ -926,7 +930,7 @@ export default function App() {
 
     // 소모 통계 업데이트
     disassembleResult.items.forEach(item => {
-      const itemKey = item.name.includes('제작') ? `${item.tier}T제작` as keyof typeof consumedItems : `${item.tier}T드랍` as keyof typeof consumedItems;
+      const itemKey = item.itemSource === 'craft' ? `${item.tier}T제작` as keyof typeof consumedItems : `${item.tier}T드랍` as keyof typeof consumedItems;
       if (itemKey in consumedItems) {
         setConsumedItems(prev => ({ ...prev, [itemKey]: prev[itemKey] + 1 }));
       }
@@ -1549,7 +1553,7 @@ export default function App() {
                   cursor: canCraft ? 'pointer' : 'not-allowed',
                 }}
               >
-                <span style={{fontWeight: 'bold', fontSize: '0.85rem'}}>{t}T 필드</span>
+                <span style={{fontWeight: 'bold', fontSize: '0.85rem'}}>{t}T 필드 무기</span>
                 {t > 1 && <span style={{fontSize: '0.7rem', color: loot >= 10 ? '#90ee90' : '#ff8888'}}>{t}T 전리품 {loot}/10</span>}
                 <span style={{fontSize: '0.7rem', color: ore >= 10 ? '#90ee90' : '#ff8888'}}>{t}T 철광석 {ore}/10</span>
               </button>
@@ -1580,7 +1584,7 @@ export default function App() {
                   cursor: canCraft ? 'pointer' : 'not-allowed',
                 }}
               >
-                <span style={{fontWeight: 'bold', fontSize: '0.85rem'}}>{t}T 코어</span>
+                <span style={{fontWeight: 'bold', fontSize: '0.85rem'}}>{t}T 코어 무기</span>
                 <span style={{fontSize: '0.7rem', color: core >= 10 ? '#90ee90' : '#ff8888'}}>{t}T 코어 {core}/10</span>
                 <span style={{fontSize: '0.7rem', color: ore >= 10 ? '#90ee90' : '#ff8888'}}>{t}T 철광석 {ore}/10</span>
               </button>
@@ -1610,7 +1614,7 @@ export default function App() {
                   cursor: canCraft ? 'pointer' : 'not-allowed',
                 }}
               >
-                <span style={{fontWeight: 'bold', fontSize: '0.85rem'}}>{t}T 무역</span>
+                <span style={{fontWeight: 'bold', fontSize: '0.85rem'}}>{t}T 무역 무기</span>
                 <span style={{fontSize: '0.7rem', color: coins >= 10 ? coinColor : '#ff8888'}}>{coinLabel} {coins}/10</span>
                 <span style={{fontSize: '0.7rem', color: ore >= 10 ? '#90ee90' : '#ff8888'}}>{t}T 철광석 {ore}/10</span>
               </button>

@@ -27,7 +27,7 @@ export interface EnhanceResult {
 }
 
 const getConsumeKey = (item: Item): keyof ConsumedItems | null => {
-  const key = item.name.includes('제작') ? `${item.tier}T제작` : `${item.tier}T드랍`;
+  const key = item.itemSource === 'craft' ? `${item.tier}T제작` : `${item.tier}T드랍`;
   return key as keyof ConsumedItems;
 };
 

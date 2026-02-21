@@ -2,6 +2,9 @@
 
 export type EcoMode = 'BM' | 'HARDCORE';
 
+export type ItemType = 'weapon' | 'armor';
+export type ItemSource = 'drop' | 'craft';
+
 // 1. 아이템 타입 정의 (App.tsx와 동일 구조)
 export interface Item {
   id: number;
@@ -17,6 +20,8 @@ export interface Item {
   isStackable?: boolean; // 스택 가능 여부
   exp?: number;        // 현재 보유 경험치
   usedProtectionCount?: number; // 이 아이템에 사용된 보호제 총 개수
+  itemType?: ItemType;   // 무기/방어구 구분
+  itemSource?: ItemSource; // 드랍/제작 구분
 }
 
 // 사냥 중 스폰된 광물 정보

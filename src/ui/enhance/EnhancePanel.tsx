@@ -248,7 +248,7 @@ export default function EnhancePanel(props: EnhancePanelProps) {
             </div>
             <div style={{ fontSize: '0.85rem', marginBottom: '8px' }}>
               • 필요 재료: {selectedItem.tier}T{' '}
-              {selectedItem.name.includes('드랍') ? '드랍템' : '제작템'} 1개
+              {selectedItem.itemSource === 'drop' ? '드랍템' : '제작템'} 1개
             </div>
             {ecoMode === 'BM' ? (
               <>

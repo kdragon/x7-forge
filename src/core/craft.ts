@@ -70,7 +70,7 @@ export const consumeCore = (
 export const createCraftedFieldItem = (tier: number, grade: Item['grade'], isSR: boolean): Item => {
   return {
     id: Date.now(),
-    name: `${tier}T 필드`,
+    name: `${tier}T 필드 무기`,
     tier,
     grade,
     attack: calculateAttack(tier, grade, 0),
@@ -78,5 +78,7 @@ export const createCraftedFieldItem = (tier: number, grade: Item['grade'], isSR:
     skill: isSR ? 'SR' : 'R',
     slots: 0,
     enhance: 0,
+    itemType: 'weapon',
+    itemSource: 'craft',
   };
 };
