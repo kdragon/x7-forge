@@ -457,6 +457,24 @@ export default function App() {
     return () => window.clearInterval(interval);
   }, [huntingTier, characterBaseAttack, monsterDefense]);
 
+  // --- 사냥 중지 ---
+  const stopHunting = () => {
+    setHuntingTier(null);
+    setBattlePhase('idle');
+    setSpawnedOres([]);
+    setDamageEvents([]);
+    setCharacterDamageEvents([]);
+    setHealEvents([]);
+    setSkillEffects([]);
+    skillCooldownRef.current = 0;
+    setSkillCooldownLeftMs(0);
+    if (oreSpawnTimeoutRef.current) {
+      clearTimeout(oreSpawnTimeoutRef.current);
+      oreSpawnTimeoutRef.current = null;
+    }
+    setPotionCooldownLeftMs(0);
+  };
+
   // 1초마다 몬스터 → 캐릭터 공격 (방어도 적용)
   const characterDefense = 0; // 추후 장비/레벨에 따라 확장 가능
 
@@ -603,23 +621,6 @@ export default function App() {
     setCharacterHP(characterMaxHP); // 캐릭터 부활 및 체력 회복
     skillCooldownRef.current = 0;
     setSkillCooldownLeftMs(0);
-  };
-
-  const stopHunting = () => {
-    setHuntingTier(null);
-    setBattlePhase('idle');
-    setSpawnedOres([]);
-    setDamageEvents([]);
-    setCharacterDamageEvents([]);
-    setHealEvents([]);
-    setSkillEffects([]);
-    skillCooldownRef.current = 0;
-    setSkillCooldownLeftMs(0);
-    if (oreSpawnTimeoutRef.current) {
-      clearTimeout(oreSpawnTimeoutRef.current);
-      oreSpawnTimeoutRef.current = null;
-    }
-    setPotionCooldownLeftMs(0);
   };
 
   // 기존 4초 전투 사이클은 제거되었고,
