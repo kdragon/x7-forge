@@ -1,5 +1,5 @@
 import type { Item } from '../../shared/types';
-import { BONUS_ATTACK_RANGES } from '../../config/itemRules';
+import { BASE_ATTACK_BY_TIER, BASE_DEFENSE_BY_TIER } from '../../config/itemRules';
 
 export const getGradeColor = (grade: Item['grade']): string => {
   switch (grade) {
@@ -15,7 +15,19 @@ export const getGradeColor = (grade: Item['grade']): string => {
 };
 
 export const formatBonusAttack = (item: Item): string => {
-  const [min, max] = BONUS_ATTACK_RANGES[item.tier] || [3, 6];
-  const isMax = item.bonusAttack === max;
-  return `${isMax ? '🔘' : ''}+${item.bonusAttack} (${min}~${max})`;
+  const base = BASE_ATTACK_BY_TIER[item.tier] ?? item.tier * 100;
+  const min = Math.ceil(base * 0.05);
+  const max = Math.ceil(base * 0.10);
+  const val = item.bonusAttack ?? 0;
+  const isMax = val === max;
+  return `${isMax ? '🔘' : ''}+${val} (${min}~${max})`;
+};
+
+export const formatBonusDefense = (item: Item): string => {
+  const base = BASE_DEFENSE_BY_TIER[item.tier] ?? 90;
+  const min = Math.ceil(base * 0.05);
+  const max = Math.ceil(base * 0.10);
+  const val = item.bonusDefense ?? 0;
+  const isMax = val === max;
+  return `${isMax ? '🔘' : ''}+${val} (${min}~${max})`;
 };

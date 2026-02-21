@@ -62,16 +62,6 @@ export const DEFENSE_ENHANCE_BONUS_PER_TIER: Record<number, number> = {
   7: 68,
 };
 
-export const BONUS_ATTACK_RANGES: Record<number, [number, number]> = {
-  1: [3, 6],
-  2: [4, 8],
-  3: [6, 12],
-  4: [9, 18],
-  5: [13, 26],
-  6: [18, 36],
-  7: [24, 48],
-};
-
 export const BASE_DEFENSE_BY_TIER: Record<number, number> = {
   1: 120,
   2: 160,
@@ -89,11 +79,20 @@ export const calculateDefense = (tier: number, grade: string, enhance: number): 
   return base + gradeBonus + enhanceBonus;
 };
 
+const pickBonusPercent = (): number => {
+  const roll = Math.random();
+  if (roll < 0.10) return 5;
+  if (roll < 0.26) return 6;
+  if (roll < 0.42) return 7;
+  if (roll < 0.58) return 8;
+  if (roll < 0.74) return 9;
+  return 10;
+};
+
 export const rollBonusDefense = (tier: number): number => {
   const base = BASE_DEFENSE_BY_TIER[tier] ?? 90;
-  const min = Math.floor(base * 0.03);
-  const max = Math.floor(base * 0.06);
-  return Math.floor(Math.random() * (max - min + 1)) + min;
+  const percent = pickBonusPercent();
+  return Math.ceil(base * (percent / 100));
 };
 
 export const calculateSlots = (enhance: number): number => {
@@ -116,8 +115,9 @@ export const calculateAttack = (tier: number, grade: string, enhance: number): n
 };
 
 export const rollBonusAttack = (tier: number): number => {
-  const [min, max] = BONUS_ATTACK_RANGES[tier] ?? [3, 6];
-  return Math.floor(Math.random() * (max - min + 1)) + min;
+  const base = BASE_ATTACK_BY_TIER[tier] ?? tier * 100;
+  const percent = pickBonusPercent();
+  return Math.ceil(base * (percent / 100));
 };
 
 export const determineGrade = (

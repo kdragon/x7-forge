@@ -20,6 +20,7 @@ import {
 import InventoryPanel from './ui/inventory/InventoryPanel';
 import EnhancePanel from './ui/enhance/EnhancePanel';
 import CombatPanel from './ui/combat/CombatPanel';
+import SimulationPage from './sim/SimulationPage';
 import type { GameState } from './state/gameTypes';
 import { useGameActions } from './state/useGameActions';
 import { useGameState } from './state/useGameState';
@@ -33,6 +34,7 @@ export default function App() {
   const [isRateConfigOpen, setIsRateConfigOpen] = useState(false);
   const [combatLoopKey, setCombatLoopKey] = useState(0);
   const [pendingIssueUrl, setPendingIssueUrl] = useState<string | null>(null);
+  const [routeHash, setRouteHash] = useState(() => window.location.hash);
   const {
     inventory,
     log,
@@ -135,6 +137,22 @@ export default function App() {
   const setIsDropCheatOpen = useCallback((value: boolean | ((prev: boolean) => boolean)) => setField('isDropCheatOpen', value), [setField]);
   const setDisassembleSelection = useCallback((value: Item[] | ((prev: Item[]) => Item[])) => setField('disassembleSelection', value), [setField]);
   const setDisassembleResult = useCallback((value: GameState['disassembleResult'] | ((prev: GameState['disassembleResult']) => GameState['disassembleResult'])) => setField('disassembleResult', value), [setField]);
+
+  useEffect(() => {
+    if (!window.location.hash && window.location.pathname.endsWith('/sim')) {
+      window.location.hash = '#/sim';
+    }
+    const syncHash = () => setRouteHash(window.location.hash);
+    syncHash();
+    window.addEventListener('hashchange', syncHash);
+    window.addEventListener('popstate', syncHash);
+    return () => {
+      window.removeEventListener('hashchange', syncHash);
+      window.removeEventListener('popstate', syncHash);
+    };
+  }, []);
+
+  const isSimRoute = routeHash.startsWith('#/sim');
 
   const renderLogMessage = (message: string) => {
     const healMatch = message.match(/\+\d+\s?회복/);
@@ -1398,10 +1416,13 @@ export default function App() {
   };
 
   return (
-    <>
-      <div style={containerStyle}>
+    isSimRoute ? (
+      <SimulationPage />
+    ) : (
+      <>
+        <div style={containerStyle}>
         {/* 시스템 로그 우측 상단에 세션 리셋 버튼 (fixed로 항상 보이게) */}
-        <div style={{ position: 'fixed', top: 18, right: 32, zIndex: 100 }}>
+        <div style={{ position: 'fixed', top: 18, right: 32, zIndex: 100, display: 'flex', gap: '8px' }}>
           <button
             onClick={handleResetSession}
             style={{
@@ -1417,6 +1438,22 @@ export default function App() {
             }}
           >
             [캐릭터 삭제(리셋)]
+          </button>
+          <button
+            onClick={() => { window.location.hash = '#/sim'; }}
+            style={{
+              background: '#1e1e1e',
+              color: '#90caf9',
+              border: '1.5px solid #90caf9',
+              borderRadius: 6,
+              padding: '7px 14px',
+              fontWeight: 'bold',
+              fontSize: '0.85rem',
+              cursor: 'pointer',
+              boxShadow: '0 2px 8px #000a',
+            }}
+          >
+            시뮬레이터
           </button>
         </div>
         {/* CSS 애니메이션 keyframes */}
@@ -2557,8 +2594,9 @@ export default function App() {
           </div>
         </div>
       )}
-    </div>
-    </>
+        </div>
+      </>
+    )
   );
 }
 

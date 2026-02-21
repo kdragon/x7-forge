@@ -2,7 +2,7 @@ import type { Item } from '../../shared/types';
 import { getProtectionCountForFailRate } from '../../config/enhanceRules';
 import { getMaxGradeForTier } from '../../config/itemRules';
 import { useGameState } from '../../state/useGameState';
-import { formatBonusAttack, getGradeColor } from '../shared/itemUi';
+import { formatBonusAttack, formatBonusDefense, getGradeColor } from '../shared/itemUi';
 import { btnStyle, infoText, itemCard, upgradePanel } from '../shared/styles';
 
 interface EnhancePanelProps {
@@ -19,7 +19,8 @@ export default function EnhancePanel(props: EnhancePanelProps) {
     selectedItem,
     isUpgradeMode,
     isEnhanceMode,
-    equippedItemId,
+    equippedWeaponId,
+    equippedArmorId,
     ecoMode,
     enhanceRates,
     protectionPrice,
@@ -67,8 +68,17 @@ export default function EnhancePanel(props: EnhancePanelProps) {
                 </span>
               )}
             </div>
-            <div style={infoText}>공격력: {selectedItem.attack}</div>
-            <div style={infoText}>추가공격력: {formatBonusAttack(selectedItem)}</div>
+            {selectedItem.itemType === 'armor' ? (
+              <>
+                <div style={infoText}>방어도: {selectedItem.defense ?? 0}</div>
+                <div style={infoText}>추가방어력: {formatBonusDefense(selectedItem)}</div>
+              </>
+            ) : (
+              <>
+                <div style={infoText}>공격력: {selectedItem.attack}</div>
+                <div style={infoText}>추가공격력: {formatBonusAttack(selectedItem)}</div>
+              </>
+            )}
             <div
               style={{
                 ...infoText,
@@ -110,7 +120,7 @@ export default function EnhancePanel(props: EnhancePanelProps) {
               style={{
                 ...btnStyle,
                 backgroundColor:
-                  equippedItemId === selectedItem.id ? '#757575' : '#1976d2',
+                  (selectedItem.itemType === 'armor' ? equippedArmorId : equippedWeaponId) === selectedItem.id ? '#757575' : '#1976d2',
                 color: '#fff',
                 fontWeight: 'bold',
                 padding: '12px',
@@ -118,7 +128,7 @@ export default function EnhancePanel(props: EnhancePanelProps) {
               onClick={() => onEquip(selectedItem)}
               disabled={selectedItem.isStackable}
             >
-              {equippedItemId === selectedItem.id ? '장착 해제' : '장착'}
+              {(selectedItem.itemType === 'armor' ? equippedArmorId : equippedWeaponId) === selectedItem.id ? '장착 해제' : '장착'}
             </button>
             <button
               style={{ ...btnStyle, backgroundColor: '#d32f2f', padding: '12px' }}
@@ -179,8 +189,17 @@ export default function EnhancePanel(props: EnhancePanelProps) {
                 </span>
               )}
             </div>
-            <div style={infoText}>공격력: {selectedItem.attack}</div>
-            <div style={infoText}>추가공격력: {formatBonusAttack(selectedItem)}</div>
+            {selectedItem.itemType === 'armor' ? (
+              <>
+                <div style={infoText}>방어도: {selectedItem.defense ?? 0}</div>
+                <div style={infoText}>추가방어력: {formatBonusDefense(selectedItem)}</div>
+              </>
+            ) : (
+              <>
+                <div style={infoText}>공격력: {selectedItem.attack}</div>
+                <div style={infoText}>추가공격력: {formatBonusAttack(selectedItem)}</div>
+              </>
+            )}
             <div
               style={{
                 ...infoText,

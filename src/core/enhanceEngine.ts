@@ -1,5 +1,5 @@
 import type { ConsumedItems, EcoMode, Item } from '../shared/types';
-import { calculateAttack, calculateSlots } from '../config/itemRules';
+import { calculateAttack, calculateDefense, calculateSlots } from '../config/itemRules';
 import { getProtectionCountForFailRate } from '../config/enhanceRules';
 import { getDisassembleStones } from './enhance';
 
@@ -64,7 +64,8 @@ export const enhanceItem = (params: EnhanceParams): EnhanceResult => {
           ? {
               ...item,
               enhance: newEnhance,
-              attack: calculateAttack(item.tier, item.grade, newEnhance),
+              attack: item.itemType === 'armor' ? 0 : calculateAttack(item.tier, item.grade, newEnhance),
+              defense: item.itemType === 'armor' ? calculateDefense(item.tier, item.grade, newEnhance) : item.defense,
               slots: calculateSlots(newEnhance),
               usedProtectionCount: (item.usedProtectionCount || 0) + protectionCount,
             }
@@ -73,7 +74,8 @@ export const enhanceItem = (params: EnhanceParams): EnhanceResult => {
       const updatedSelected: Item = {
         ...selectedItem,
         enhance: newEnhance,
-        attack: calculateAttack(selectedItem.tier, selectedItem.grade, newEnhance),
+        attack: selectedItem.itemType === 'armor' ? 0 : calculateAttack(selectedItem.tier, selectedItem.grade, newEnhance),
+        defense: selectedItem.itemType === 'armor' ? calculateDefense(selectedItem.tier, selectedItem.grade, newEnhance) : selectedItem.defense,
         slots: calculateSlots(newEnhance),
         usedProtectionCount: (selectedItem.usedProtectionCount || 0) + protectionCount,
       };
@@ -135,7 +137,8 @@ export const enhanceItem = (params: EnhanceParams): EnhanceResult => {
         ? {
             ...item,
             enhance: newEnhance,
-            attack: calculateAttack(item.tier, item.grade, newEnhance),
+            attack: item.itemType === 'armor' ? 0 : calculateAttack(item.tier, item.grade, newEnhance),
+            defense: item.itemType === 'armor' ? calculateDefense(item.tier, item.grade, newEnhance) : item.defense,
             slots: calculateSlots(newEnhance),
           }
         : item,
@@ -143,7 +146,8 @@ export const enhanceItem = (params: EnhanceParams): EnhanceResult => {
     const updatedSelected: Item = {
       ...selectedItem,
       enhance: newEnhance,
-      attack: calculateAttack(selectedItem.tier, selectedItem.grade, newEnhance),
+      attack: selectedItem.itemType === 'armor' ? 0 : calculateAttack(selectedItem.tier, selectedItem.grade, newEnhance),
+      defense: selectedItem.itemType === 'armor' ? calculateDefense(selectedItem.tier, selectedItem.grade, newEnhance) : selectedItem.defense,
       slots: calculateSlots(newEnhance),
     };
     return {

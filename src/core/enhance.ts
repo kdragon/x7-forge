@@ -13,13 +13,13 @@ export const getDisassembleStones = (
   const stoneType: 'low' | 'mid' | 'high' = tier <= 2 ? 'low' : tier <= 4 ? 'mid' : 'high';
 
   const gradeRanges: Record<string, [number, number]> = {
-    일반: [2, 4],
-    고급: [4, 8],
-    희귀: [20, 40],
-    고대: [100, 200],
-    영웅: [500, 1000],
-    유일: [2500, 5000],
-    유물: [12500, 20000],
+    일반: [3, 5],
+    고급: [6, 10],
+    희귀: [12, 20],
+    고대: [30, 50],
+    영웅: [75, 125],
+    유일: [225, 375],
+    유물: [675, 1125],
   };
 
   const [min, max] = gradeRanges[grade || '일반'] || [2, 4];
@@ -40,10 +40,10 @@ export const getUpgradeCost = (
   const upgradeCosts: Record<string, number> = {
     일반: 10,
     고급: 20,
-    희귀: 100,
-    고대: 500,
-    영웅: 2500,
-    유일: 12500,
+    희귀: 40,
+    고대: 100,
+    영웅: 250,
+    유일: 750,
   };
 
   const amount = upgradeCosts[grade];

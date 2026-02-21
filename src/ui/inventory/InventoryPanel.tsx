@@ -1,7 +1,7 @@
 import type { DragEvent } from 'react';
 import type { Item } from '../../shared/types';
 import { useGameState } from '../../state/useGameState';
-import { formatBonusAttack, getGradeColor } from '../shared/itemUi';
+import { formatBonusAttack, formatBonusDefense, getGradeColor } from '../shared/itemUi';
 import { actionBtn, btnStyle, infoText, inventoryPanel, itemCard, itemGrid, trashZoneStyle } from '../shared/styles';
 
 interface InventoryPanelProps {
@@ -18,7 +18,8 @@ export default function InventoryPanel(props: InventoryPanelProps) {
   const {
     inventory,
     selectedItem,
-    equippedItemId,
+    equippedWeaponId,
+    equippedArmorId,
     upgradeStones,
     polishStones,
     inlandTradeCoins,
@@ -176,7 +177,7 @@ export default function InventoryPanel(props: InventoryPanelProps) {
               backgroundColor: item.isStackable ? '#424242' : getGradeColor(item.grade),
               cursor: 'grab',
               border: selectedItem?.id === item.id ? '2px solid #ffd700' : '1px solid #555',
-              opacity: equippedItemId === item.id ? 0.5 : 1,
+              opacity: (equippedWeaponId === item.id || equippedArmorId === item.id) ? 0.5 : 1,
               position: 'relative',
             }}
           >
@@ -207,7 +208,7 @@ export default function InventoryPanel(props: InventoryPanelProps) {
                   ⭐
                 </span>
               )}
-              {equippedItemId === item.id && (
+              {(equippedWeaponId === item.id || equippedArmorId === item.id) && (
                 <span
                   style={{
                     position: 'absolute',
@@ -243,8 +244,17 @@ export default function InventoryPanel(props: InventoryPanelProps) {
               </div>
             ) : (
               <>
-                <div style={infoText}>공 : {item.attack}</div>
-                <div style={infoText}>추가공격력: {formatBonusAttack(item)}</div>
+                {item.itemType === 'armor' ? (
+                  <>
+                    <div style={infoText}>방 : {item.defense ?? 0}</div>
+                    <div style={infoText}>추가방어력: {formatBonusDefense(item)}</div>
+                  </>
+                ) : (
+                  <>
+                    <div style={infoText}>공 : {item.attack}</div>
+                    <div style={infoText}>추가공격력: {formatBonusAttack(item)}</div>
+                  </>
+                )}
                 <div
                   style={{
                     ...infoText,
