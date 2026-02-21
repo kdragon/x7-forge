@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Item, EcoMode } from './shared/types';
 import { getOreCount as getOreCountCore, addOreToInventory as addOreToInventoryCore, consumeOre as consumeOreCore } from './core/inventory';
 import { getDisassembleStones, getUpgradeCost, getNextGrade } from './core/enhance';
@@ -75,7 +75,7 @@ export default function App() {
     disassembleResult,
   } = state;
 
-  const setField = <K extends keyof GameState>(
+  const setField = useCallback(<K extends keyof GameState>(
     key: K,
     value: GameState[K] | ((prev: GameState[K]) => GameState[K]),
   ) => {
@@ -84,55 +84,55 @@ export default function App() {
         ? (value as (prevValue: GameState[K]) => GameState[K])(prev[key])
         : value,
     } as Partial<GameState>));
-  };
+  }, [setState]);
 
-  const setInventory = (value: Item[] | ((prev: Item[]) => Item[])) => setField('inventory', value);
-  const setSelectedItem = (value: Item | null | ((prev: Item | null) => Item | null)) => setField('selectedItem', value);
-  const setIsUpgradeMode = (value: boolean | ((prev: boolean) => boolean)) => setField('isUpgradeMode', value);
-  const setIsEnhanceMode = (value: boolean | ((prev: boolean) => boolean)) => setField('isEnhanceMode', value);
-  const setIsTradeMode = (value: 'inland' | 'sea' | null | ((prev: 'inland' | 'sea' | null) => 'inland' | 'sea' | null)) => setField('isTradeMode', value);
-  const setInlandTradeCoins = (value: number | ((prev: number) => number)) => setField('inlandTradeCoins', value);
-  const setSeaTradeCoins = (value: number | ((prev: number) => number)) => setField('seaTradeCoins', value);
-  const setDraggedItem = (value: Item | null | ((prev: Item | null) => Item | null)) => setField('draggedItem', value);
-  const setDeleteConfirmItem = (value: Item | null | ((prev: Item | null) => Item | null)) => setField('deleteConfirmItem', value);
-  const setCharacterLevel = (value: number | ((prev: number) => number)) => setField('characterLevel', value);
-  const setCharacterExp = (value: number | ((prev: number) => number)) => setField('characterExp', value);
-  const setCharacterMaxHP = (value: number | ((prev: number) => number)) => setField('characterMaxHP', value);
-  const setCharacterHP = (value: number | ((prev: number) => number)) => setField('characterHP', value);
-  const setCharacterBaseAttack = (value: number | ((prev: number) => number)) => setField('characterBaseAttack', value);
-  const setCharacterBaseDefense = (value: number | ((prev: number) => number)) => setField('characterBaseDefense', value);
-  const setEquippedWeaponId = (value: number | null | ((prev: number | null) => number | null)) => setField('equippedWeaponId', value);
-  const setEquippedArmorId = (value: number | null | ((prev: number | null) => number | null)) => setField('equippedArmorId', value);
-  const setMonsterMaxHP = (value: number | ((prev: number) => number)) => setField('monsterMaxHP', value);
-  const setMonsterHP = (value: number | ((prev: number) => number)) => setField('monsterHP', value);
-  const setMonsterAttack = (value: number | ((prev: number) => number)) => setField('monsterAttack', value);
-  const setMonsterDefense = (value: number | ((prev: number) => number)) => setField('monsterDefense', value);
-  const setEcoMode = (value: EcoMode | ((prev: EcoMode) => EcoMode)) => setField('ecoMode', value);
-  const setUpgradeStones = (value: { low: number; mid: number; high: number } | ((prev: { low: number; mid: number; high: number }) => { low: number; mid: number; high: number })) => setField('upgradeStones', value);
-  const setPolishStones = (value: number | ((prev: number) => number)) => setField('polishStones', value);
-  const setDropRates = (value: { high: number; rare: number; hero: number; sr: number } | ((prev: { high: number; rare: number; hero: number; sr: number }) => { high: number; rare: number; hero: number; sr: number })) => setField('dropRates', value);
-  const setCraftRates = (value: { high: number; rare: number; hero: number; sr: number } | ((prev: { high: number; rare: number; hero: number; sr: number }) => { high: number; rare: number; hero: number; sr: number })) => setField('craftRates', value);
-  const setEnhanceRates = (value: number[] | ((prev: number[]) => number[])) => setField('enhanceRates', value);
-  const setProtectionPrice = (value: number | ((prev: number) => number)) => setField('protectionPrice', value);
-  const setUsedProtectionCount = (value: number | ((prev: number) => number)) => setField('usedProtectionCount', value);
-  const setLootDropRate = (value: number | ((prev: number) => number)) => setField('lootDropRate', value);
-  const setConsumedItems = (value: GameState['consumedItems'] | ((prev: GameState['consumedItems']) => GameState['consumedItems'])) => setField('consumedItems', value);
-  const setHuntingTier = (value: number | null | ((prev: number | null) => number | null)) => setField('huntingTier', value);
-  const setSelectedHuntingTier = (value: number | ((prev: number) => number)) => setField('selectedHuntingTier', value);
-  const setBattlePhase = (value: BattlePhase | ((prev: BattlePhase) => BattlePhase)) => setField('battlePhase', value);
-  const setKillCount = (value: number | ((prev: number) => number)) => setField('killCount', value);
-  const setSpawnedOres = (value: GameState['spawnedOres'] | ((prev: GameState['spawnedOres']) => GameState['spawnedOres'])) => setField('spawnedOres', value);
-  const setDamageEvents = (value: GameState['damageEvents'] | ((prev: GameState['damageEvents']) => GameState['damageEvents'])) => setField('damageEvents', value);
-  const setCharacterDamageEvents = (value: GameState['characterDamageEvents'] | ((prev: GameState['characterDamageEvents']) => GameState['characterDamageEvents'])) => setField('characterDamageEvents', value);
-  const setHealEvents = (value: GameState['healEvents'] | ((prev: GameState['healEvents']) => GameState['healEvents'])) => setField('healEvents', value);
-  const setDropEffects = (value: GameState['dropEffects'] | ((prev: GameState['dropEffects']) => GameState['dropEffects'])) => setField('dropEffects', value);
-  const setSkillEffects = (value: GameState['skillEffects'] | ((prev: GameState['skillEffects']) => GameState['skillEffects'])) => setField('skillEffects', value);
-  const setPotionCooldownLeftMs = (value: number | ((prev: number) => number)) => setField('potionCooldownLeftMs', value);
-  const setSkillCooldownLeftMs = (value: number | ((prev: number) => number)) => setField('skillCooldownLeftMs', value);
-  const setIsDisassembleMode = (value: boolean | ((prev: boolean) => boolean)) => setField('isDisassembleMode', value);
-  const setIsDropCheatOpen = (value: boolean | ((prev: boolean) => boolean)) => setField('isDropCheatOpen', value);
-  const setDisassembleSelection = (value: Item[] | ((prev: Item[]) => Item[])) => setField('disassembleSelection', value);
-  const setDisassembleResult = (value: GameState['disassembleResult'] | ((prev: GameState['disassembleResult']) => GameState['disassembleResult'])) => setField('disassembleResult', value);
+  const setInventory = useCallback((value: Item[] | ((prev: Item[]) => Item[])) => setField('inventory', value), [setField]);
+  const setSelectedItem = useCallback((value: Item | null | ((prev: Item | null) => Item | null)) => setField('selectedItem', value), [setField]);
+  const setIsUpgradeMode = useCallback((value: boolean | ((prev: boolean) => boolean)) => setField('isUpgradeMode', value), [setField]);
+  const setIsEnhanceMode = useCallback((value: boolean | ((prev: boolean) => boolean)) => setField('isEnhanceMode', value), [setField]);
+  const setIsTradeMode = useCallback((value: 'inland' | 'sea' | null | ((prev: 'inland' | 'sea' | null) => 'inland' | 'sea' | null)) => setField('isTradeMode', value), [setField]);
+  const setInlandTradeCoins = useCallback((value: number | ((prev: number) => number)) => setField('inlandTradeCoins', value), [setField]);
+  const setSeaTradeCoins = useCallback((value: number | ((prev: number) => number)) => setField('seaTradeCoins', value), [setField]);
+  const setDraggedItem = useCallback((value: Item | null | ((prev: Item | null) => Item | null)) => setField('draggedItem', value), [setField]);
+  const setDeleteConfirmItem = useCallback((value: Item | null | ((prev: Item | null) => Item | null)) => setField('deleteConfirmItem', value), [setField]);
+  const setCharacterLevel = useCallback((value: number | ((prev: number) => number)) => setField('characterLevel', value), [setField]);
+  const setCharacterExp = useCallback((value: number | ((prev: number) => number)) => setField('characterExp', value), [setField]);
+  const setCharacterMaxHP = useCallback((value: number | ((prev: number) => number)) => setField('characterMaxHP', value), [setField]);
+  const setCharacterHP = useCallback((value: number | ((prev: number) => number)) => setField('characterHP', value), [setField]);
+  const setCharacterBaseAttack = useCallback((value: number | ((prev: number) => number)) => setField('characterBaseAttack', value), [setField]);
+  const setCharacterBaseDefense = useCallback((value: number | ((prev: number) => number)) => setField('characterBaseDefense', value), [setField]);
+  const setEquippedWeaponId = useCallback((value: number | null | ((prev: number | null) => number | null)) => setField('equippedWeaponId', value), [setField]);
+  const setEquippedArmorId = useCallback((value: number | null | ((prev: number | null) => number | null)) => setField('equippedArmorId', value), [setField]);
+  const setMonsterMaxHP = useCallback((value: number | ((prev: number) => number)) => setField('monsterMaxHP', value), [setField]);
+  const setMonsterHP = useCallback((value: number | ((prev: number) => number)) => setField('monsterHP', value), [setField]);
+  const setMonsterAttack = useCallback((value: number | ((prev: number) => number)) => setField('monsterAttack', value), [setField]);
+  const setMonsterDefense = useCallback((value: number | ((prev: number) => number)) => setField('monsterDefense', value), [setField]);
+  const setEcoMode = useCallback((value: EcoMode | ((prev: EcoMode) => EcoMode)) => setField('ecoMode', value), [setField]);
+  const setUpgradeStones = useCallback((value: { low: number; mid: number; high: number } | ((prev: { low: number; mid: number; high: number }) => { low: number; mid: number; high: number })) => setField('upgradeStones', value), [setField]);
+  const setPolishStones = useCallback((value: number | ((prev: number) => number)) => setField('polishStones', value), [setField]);
+  const setDropRates = useCallback((value: { high: number; rare: number; hero: number; sr: number } | ((prev: { high: number; rare: number; hero: number; sr: number }) => { high: number; rare: number; hero: number; sr: number })) => setField('dropRates', value), [setField]);
+  const setCraftRates = useCallback((value: { high: number; rare: number; hero: number; sr: number } | ((prev: { high: number; rare: number; hero: number; sr: number }) => { high: number; rare: number; hero: number; sr: number })) => setField('craftRates', value), [setField]);
+  const setEnhanceRates = useCallback((value: number[] | ((prev: number[]) => number[])) => setField('enhanceRates', value), [setField]);
+  const setProtectionPrice = useCallback((value: number | ((prev: number) => number)) => setField('protectionPrice', value), [setField]);
+  const setUsedProtectionCount = useCallback((value: number | ((prev: number) => number)) => setField('usedProtectionCount', value), [setField]);
+  const setLootDropRate = useCallback((value: number | ((prev: number) => number)) => setField('lootDropRate', value), [setField]);
+  const setConsumedItems = useCallback((value: GameState['consumedItems'] | ((prev: GameState['consumedItems']) => GameState['consumedItems'])) => setField('consumedItems', value), [setField]);
+  const setHuntingTier = useCallback((value: number | null | ((prev: number | null) => number | null)) => setField('huntingTier', value), [setField]);
+  const setSelectedHuntingTier = useCallback((value: number | ((prev: number) => number)) => setField('selectedHuntingTier', value), [setField]);
+  const setBattlePhase = useCallback((value: BattlePhase | ((prev: BattlePhase) => BattlePhase)) => setField('battlePhase', value), [setField]);
+  const setKillCount = useCallback((value: number | ((prev: number) => number)) => setField('killCount', value), [setField]);
+  const setSpawnedOres = useCallback((value: GameState['spawnedOres'] | ((prev: GameState['spawnedOres']) => GameState['spawnedOres'])) => setField('spawnedOres', value), [setField]);
+  const setDamageEvents = useCallback((value: GameState['damageEvents'] | ((prev: GameState['damageEvents']) => GameState['damageEvents'])) => setField('damageEvents', value), [setField]);
+  const setCharacterDamageEvents = useCallback((value: GameState['characterDamageEvents'] | ((prev: GameState['characterDamageEvents']) => GameState['characterDamageEvents'])) => setField('characterDamageEvents', value), [setField]);
+  const setHealEvents = useCallback((value: GameState['healEvents'] | ((prev: GameState['healEvents']) => GameState['healEvents'])) => setField('healEvents', value), [setField]);
+  const setDropEffects = useCallback((value: GameState['dropEffects'] | ((prev: GameState['dropEffects']) => GameState['dropEffects'])) => setField('dropEffects', value), [setField]);
+  const setSkillEffects = useCallback((value: GameState['skillEffects'] | ((prev: GameState['skillEffects']) => GameState['skillEffects'])) => setField('skillEffects', value), [setField]);
+  const setPotionCooldownLeftMs = useCallback((value: number | ((prev: number) => number)) => setField('potionCooldownLeftMs', value), [setField]);
+  const setSkillCooldownLeftMs = useCallback((value: number | ((prev: number) => number)) => setField('skillCooldownLeftMs', value), [setField]);
+  const setIsDisassembleMode = useCallback((value: boolean | ((prev: boolean) => boolean)) => setField('isDisassembleMode', value), [setField]);
+  const setIsDropCheatOpen = useCallback((value: boolean | ((prev: boolean) => boolean)) => setField('isDropCheatOpen', value), [setField]);
+  const setDisassembleSelection = useCallback((value: Item[] | ((prev: Item[]) => Item[])) => setField('disassembleSelection', value), [setField]);
+  const setDisassembleResult = useCallback((value: GameState['disassembleResult'] | ((prev: GameState['disassembleResult']) => GameState['disassembleResult'])) => setField('disassembleResult', value), [setField]);
 
   const renderLogMessage = (message: string) => {
     const healMatch = message.match(/\+\d+\s?회복/);
@@ -175,7 +175,7 @@ export default function App() {
       setState(restored);
       console.log('데이터 불러오기 완료');
     }
-  }, []);
+  }, [setState]);
 
   // 데이터 저장 (자동 저장)
   useEffect(() => {
@@ -183,7 +183,7 @@ export default function App() {
   }, [
     inventory, characterLevel, characterExp, characterMaxHP, characterHP,
     characterBaseAttack, upgradeStones, polishStones, inlandTradeCoins,
-    seaTradeCoins, consumedItems, equippedWeaponId, equippedArmorId, killCount
+    seaTradeCoins, consumedItems, equippedWeaponId, equippedArmorId, killCount, state
   ]);
 
   // 세션 리셋 핸들러
@@ -194,15 +194,15 @@ export default function App() {
     }
   };
 
-  const triggerDropEffect = (grade: Item['grade']) => {
+  const triggerDropEffect = useCallback((grade: Item['grade']) => {
     const id = Date.now() + Math.random();
     setDropEffects(prev => [...prev, { id, grade }]);
     window.setTimeout(() => {
       setDropEffects(prev => prev.filter(effect => effect.id !== id));
     }, 1000);
-  };
+  }, [setDropEffects]);
 
-  const triggerSkillEffect = (kind: 'R' | 'SR') => {
+  const triggerSkillEffect = useCallback((kind: 'R' | 'SR') => {
     const isSr = kind === 'SR';
     const offsets = isSr ? [-18, -9, 0, 9, 18] : [0];
     const durationMs = isSr ? 600 : 900;
@@ -217,25 +217,25 @@ export default function App() {
         setSkillEffects(prev => prev.filter(item => item.id !== effect.id));
       }, durationMs);
     });
-  };
+  }, [setSkillEffects]);
 
-  const pushCharacterDamage = (amount: number) => {
+  const pushCharacterDamage = useCallback((amount: number) => {
     const eventId = Date.now() + Math.random();
     setCharacterDamageEvents(prevEvents => [...prevEvents, { id: eventId, amount, left: '50%' }]);
     window.setTimeout(() => {
       setCharacterDamageEvents(prevEvents => prevEvents.filter(e => e.id !== eventId));
     }, 800);
-  };
+  }, [setCharacterDamageEvents]);
 
-  const pushHealEvent = (amount: number) => {
+  const pushHealEvent = useCallback((amount: number) => {
     const eventId = Date.now() + Math.random();
     setHealEvents(prevEvents => [...prevEvents, { id: eventId, amount, left: '50%' }]);
     window.setTimeout(() => {
       setHealEvents(prevEvents => prevEvents.filter(e => e.id !== eventId));
     }, 800);
-  };
+  }, [setHealEvents]);
 
-  const handleMonsterKilled = (tier: number) => {
+  const handleMonsterKilled = useCallback((tier: number) => {
     setKillCount(prev => prev + 1);
 
     const missingHp = Math.max(0, characterMaxHP - characterHPRef.current);
@@ -300,7 +300,21 @@ export default function App() {
 
       return result.exp;
     });
-  };
+  }, [
+    addLog,
+    characterLevel,
+    characterMaxHP,
+    lootDropRate,
+    monsterAttack,
+    monsterDefense,
+    pushHealEvent,
+    setCharacterExp,
+    setCharacterHP,
+    setCharacterLevel,
+    setCharacterMaxHP,
+    setInventory,
+    setKillCount,
+  ]);
 
   // 몬스터 리스폰 및 전투 사이클 (사냥터 시작/변경 시 초기화)
   useEffect(() => {
@@ -316,7 +330,7 @@ export default function App() {
     lastStallReportRef.current = 0;
     // 추후 티어별 분기 가능
     window.setTimeout(() => setMonsterHP(maxHP), 0);
-  }, [huntingTier]);
+  }, [huntingTier, setMonsterAttack, setMonsterDefense, setMonsterHP, setMonsterMaxHP]);
 
   // 0.5초마다 캐릭터 → 몬스터 공격 (방어도 적용)
   useEffect(() => {
@@ -469,10 +483,35 @@ export default function App() {
     }, 500);
 
     return () => window.clearInterval(interval);
-  }, [huntingTier, characterBaseAttack, monsterDefense, combatLoopKey]);
+  }, [
+    addLog,
+    characterBaseAttack,
+    characterMaxHP,
+    combatLoopKey,
+    dropRates.hero,
+    dropRates.high,
+    dropRates.rare,
+    dropRates.sr,
+    equippedSkill,
+    handleMonsterKilled,
+    huntingTier,
+    monsterDefense,
+    pushHealEvent,
+    setBattlePhase,
+    setCharacterHP,
+    setDamageEvents,
+    setInventory,
+    setMonsterAttack,
+    setMonsterDefense,
+    setMonsterHP,
+    setMonsterMaxHP,
+    setSkillCooldownLeftMs,
+    triggerDropEffect,
+    triggerSkillEffect,
+  ]);
 
   // --- 사냥 중지 ---
-  const stopHunting = () => {
+  const stopHunting = useCallback(() => {
     setHuntingTier(null);
     setBattlePhase('idle');
     setSpawnedOres([]);
@@ -488,7 +527,18 @@ export default function App() {
       oreSpawnTimeoutRef.current = null;
     }
     setPotionCooldownLeftMs(0);
-  };
+  }, [
+    setBattlePhase,
+    setCharacterDamageEvents,
+    setDamageEvents,
+    setHealEvents,
+    setHuntingTier,
+    setPendingIssueUrl,
+    setPotionCooldownLeftMs,
+    setSkillCooldownLeftMs,
+    setSkillEffects,
+    setSpawnedOres,
+  ]);
 
   // 1초마다 몬스터 → 캐릭터 공격 (방어도 적용)
   useEffect(() => {
@@ -518,7 +568,15 @@ export default function App() {
     }, 1000);
 
     return () => window.clearInterval(interval);
-  }, [huntingTier, monsterAttack, combatLoopKey]);
+  }, [
+    addLog,
+    combatLoopKey,
+    huntingTier,
+    monsterAttack,
+    pushCharacterDamage,
+    setCharacterHP,
+    stopHunting,
+  ]);
   
   // characterHPRef를 항상 최신 HP와 동기화 (포션 체크용)
   useEffect(() => {
@@ -605,12 +663,15 @@ export default function App() {
 
     return () => window.clearInterval(interval);
   }, [
+    addLog,
     huntingTier,
     battlePhase,
     characterBaseAttack,
     characterBaseDefense,
     equippedWeaponId,
     equippedArmorId,
+    setCombatLoopKey,
+    setPendingIssueUrl,
   ]);
 
   // 포션 자동 사용 및 쿨타임 카운트다운
@@ -651,7 +712,15 @@ export default function App() {
     }, 1000);
 
     return () => window.clearInterval(interval);
-  }, [huntingTier, characterMaxHP]);
+  }, [
+    addLog,
+    characterMaxHP,
+    huntingTier,
+    pushHealEvent,
+    setCharacterHP,
+    setPotionCooldownLeftMs,
+    setSkillCooldownLeftMs,
+  ]);
 
   // 아이템 장착/해제 핸들러
   const handleEquip = (item: Item | null) => {
@@ -708,7 +777,15 @@ export default function App() {
         setCharacterBaseDefense((armor.defense ?? 0) + (armor.bonusDefense ?? 0));
       }
     }
-  }, [inventory, equippedWeaponId, equippedArmorId]);
+  }, [
+    equippedArmorId,
+    equippedWeaponId,
+    inventory,
+    setCharacterBaseAttack,
+    setCharacterBaseDefense,
+    setEquippedArmorId,
+    setEquippedWeaponId,
+  ]);
 
   // --- 철광석 헬퍼 함수 (core/inventory.ts 래퍼) ---
   const getOreCount = (tier: number) => {
@@ -774,7 +851,7 @@ export default function App() {
     return () => {
       clearTimeout(timeoutId);
     };
-  }, [huntingTier, spawnedOres.length]);
+  }, [huntingTier, setSpawnedOres, spawnedOres.length]);
 
   const handleOreCollect = (oreId: number) => {
     if (!huntingTier) return;
