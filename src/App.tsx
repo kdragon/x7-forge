@@ -31,6 +31,8 @@ export default function App() {
   const state = useGameState();
   const { setState, addLog } = useGameActions();
   const [isRateConfigOpen, setIsRateConfigOpen] = useState(false);
+  const [combatLoopKey, setCombatLoopKey] = useState(0);
+  const [pendingIssueUrl, setPendingIssueUrl] = useState<string | null>(null);
   const {
     inventory,
     log,
@@ -64,6 +66,7 @@ export default function App() {
     consumedItems,
     huntingTier,
     selectedHuntingTier,
+    battlePhase,
     killCount,
     spawnedOres,
     isDisassembleMode,
@@ -154,6 +157,9 @@ export default function App() {
   const monsterHPRef = useRef<number>(0);
   const skillCooldownRef = useRef<number>(0);
   const lastMonsterSpawnRef = useRef<number>(0);
+  const lastCharacterAttackTickRef = useRef<number>(Date.now());
+  const lastMonsterHpChangeRef = useRef<number>(Date.now());
+  const lastStallReportRef = useRef<number>(0);
 
   const equippedItemForSkill = equippedWeaponId !== null
     ? inventory.find(item => item.id === equippedWeaponId)
@@ -305,6 +311,9 @@ export default function App() {
     setMonsterAttack(attack);
     setMonsterDefense(defense);
     lastMonsterSpawnRef.current = Date.now();
+    lastCharacterAttackTickRef.current = Date.now();
+    lastMonsterHpChangeRef.current = Date.now();
+    lastStallReportRef.current = 0;
     // 추후 티어별 분기 가능
     window.setTimeout(() => setMonsterHP(maxHP), 0);
   }, [huntingTier]);
@@ -312,11 +321,11 @@ export default function App() {
   // 0.5초마다 캐릭터 → 몬스터 공격 (방어도 적용)
   useEffect(() => {
     if (!huntingTier) return;
-    if (monsterHPRef.current <= 0) return;
 
     const interval = window.setInterval(() => {
       if (!huntingTier) return;
       if (monsterHPRef.current <= 0) return;
+      lastCharacterAttackTickRef.current = Date.now();
 
       // 캐릭터 전진 애니메이션은 즉시 시작
       setBattlePhase('attack');
@@ -460,7 +469,7 @@ export default function App() {
     }, 500);
 
     return () => window.clearInterval(interval);
-  }, [huntingTier, characterBaseAttack, monsterDefense]);
+  }, [huntingTier, characterBaseAttack, monsterDefense, combatLoopKey]);
 
   // --- 사냥 중지 ---
   const stopHunting = () => {
@@ -473,6 +482,7 @@ export default function App() {
     setSkillEffects([]);
     skillCooldownRef.current = 0;
     setSkillCooldownLeftMs(0);
+    setPendingIssueUrl(null);
     if (oreSpawnTimeoutRef.current) {
       clearTimeout(oreSpawnTimeoutRef.current);
       oreSpawnTimeoutRef.current = null;
@@ -483,10 +493,10 @@ export default function App() {
   // 1초마다 몬스터 → 캐릭터 공격 (방어도 적용)
   useEffect(() => {
     if (!huntingTier) return;
-    if (characterHPRef.current <= 0) return;
 
     const interval = window.setInterval(() => {
       if (monsterHPRef.current <= 0) return;
+      if (characterHPRef.current <= 0) return;
       setCharacterHP(prev => {
         if (prev <= 0) return prev;
         if (monsterHPRef.current <= 0) return prev;
@@ -508,7 +518,7 @@ export default function App() {
     }, 1000);
 
     return () => window.clearInterval(interval);
-  }, [huntingTier, monsterAttack]);
+  }, [huntingTier, monsterAttack, combatLoopKey]);
   
   // characterHPRef를 항상 최신 HP와 동기화 (포션 체크용)
   useEffect(() => {
@@ -521,7 +531,87 @@ export default function App() {
 
   useEffect(() => {
     monsterHPRef.current = monsterHP;
+    lastMonsterHpChangeRef.current = Date.now();
   }, [monsterHP]);
+
+  useEffect(() => {
+    if (!huntingTier) return;
+
+    const stallThresholdMs = 10000;
+    const interval = window.setInterval(() => {
+      if (!huntingTier) return;
+      if (monsterHPRef.current <= 0) return;
+      if (characterHPRef.current <= 0) return;
+
+      const now = Date.now();
+      const lastAttackTick = lastCharacterAttackTickRef.current;
+      const lastHpChange = lastMonsterHpChangeRef.current;
+      const sinceLastAttack = now - lastAttackTick;
+      const sinceLastHpChange = now - lastHpChange;
+
+      if (sinceLastAttack < stallThresholdMs || sinceLastHpChange < stallThresholdMs) {
+        return;
+      }
+
+      if (now - lastStallReportRef.current < stallThresholdMs) {
+        return;
+      }
+
+      lastStallReportRef.current = now;
+      addLog(
+        `[오류감지] 전투 루틴 정지 감지 (마지막 공격 ${Math.round(sinceLastAttack / 1000)}초 전, ` +
+        `몬스터 HP 변화 ${Math.round(sinceLastHpChange / 1000)}초 전, ` +
+        `티어 ${huntingTier}, 몬스터HP ${monsterHPRef.current}, 캐릭터HP ${characterHPRef.current}, ` +
+        `ATK ${characterBaseAttack}, DEF ${characterBaseDefense}, 상태 ${battlePhase})`
+      );
+      console.warn('[combat-stall]', {
+        huntingTier,
+        monsterHP: monsterHPRef.current,
+        characterHP: characterHPRef.current,
+        characterBaseAttack,
+        characterBaseDefense,
+        battlePhase,
+        sinceLastAttackMs: sinceLastAttack,
+        sinceLastHpChangeMs: sinceLastHpChange,
+        equippedWeaponId,
+        equippedArmorId,
+      });
+      const issueTitle = '[Bug] Combat loop stall detected';
+      const issueBody = [
+        '## Summary',
+        'Combat loop stall detected by watchdog. Auto-restart attempted.',
+        '',
+        '## Repro context',
+        `- huntingTier: ${huntingTier}`,
+        `- battlePhase: ${battlePhase}`,
+        `- monsterHP: ${monsterHPRef.current}`,
+        `- characterHP: ${characterHPRef.current}`,
+        `- characterBaseAttack: ${characterBaseAttack}`,
+        `- characterBaseDefense: ${characterBaseDefense}`,
+        `- equippedWeaponId: ${equippedWeaponId ?? 'none'}`,
+        `- equippedArmorId: ${equippedArmorId ?? 'none'}`,
+        `- sinceLastAttackMs: ${sinceLastAttack}`,
+        `- sinceLastHpChangeMs: ${sinceLastHpChange}`,
+        '',
+        '## Notes',
+        '- Detected by watchdog after 10s without attack tick and HP change.',
+      ].join('\n');
+      const issueUrl = `https://github.com/kdragon/x7-forge/issues/new?title=${encodeURIComponent(issueTitle)}&body=${encodeURIComponent(issueBody)}`;
+      setPendingIssueUrl(issueUrl);
+      setCombatLoopKey(prev => prev + 1);
+      lastCharacterAttackTickRef.current = now;
+      lastMonsterHpChangeRef.current = now;
+    }, 1000);
+
+    return () => window.clearInterval(interval);
+  }, [
+    huntingTier,
+    battlePhase,
+    characterBaseAttack,
+    characterBaseDefense,
+    equippedWeaponId,
+    equippedArmorId,
+  ]);
 
   // 포션 자동 사용 및 쿨타임 카운트다운
   useEffect(() => {
@@ -647,6 +737,7 @@ export default function App() {
     setCharacterHP(characterMaxHP); // 캐릭터 부활 및 체력 회복
     skillCooldownRef.current = 0;
     setSkillCooldownLeftMs(0);
+    setPendingIssueUrl(null);
   };
 
   // 기존 4초 전투 사이클은 제거되었고,
@@ -1910,6 +2001,33 @@ export default function App() {
 
         <div style={logPanel}>
           <h3 style={{marginTop: 0}}>System Log</h3>
+          {pendingIssueUrl && (
+            <div style={{
+              padding: '8px 10px',
+              marginBottom: '10px',
+              border: '1px solid #ef5350',
+              background: 'rgba(239,83,80,0.12)',
+              borderRadius: '6px',
+              fontSize: '0.85rem',
+              color: '#ffebee',
+            }}>
+              <div style={{ marginBottom: '6px', fontWeight: 'bold' }}>
+                전투 루틴 정지 감지됨
+              </div>
+              <button
+                style={{
+                  ...btnStyle,
+                  backgroundColor: '#d32f2f',
+                  padding: '6px 10px',
+                  fontSize: '0.8rem',
+                  fontWeight: 'bold',
+                }}
+                onClick={() => window.open(pendingIssueUrl, '_blank', 'noopener,noreferrer')}
+              >
+                GitHub 이슈 열기
+              </button>
+            </div>
+          )}
           {log.map((m, i) => (
             <div key={i} style={{fontSize: '0.85rem', padding: '4px 0', borderBottom: '1px solid #333'}}>
               {renderLogMessage(m)}
