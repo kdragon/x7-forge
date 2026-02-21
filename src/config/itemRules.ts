@@ -52,6 +52,30 @@ export const BONUS_ATTACK_RANGES: Record<number, [number, number]> = {
   7: [24, 48],
 };
 
+export const BASE_DEFENSE_BY_TIER: Record<number, number> = {
+  1: 90,
+  2: 245,
+  3: 460,
+  4: 590,
+  5: 800,
+  6: 1000,
+  7: 1270,
+};
+
+export const calculateDefense = (tier: number, grade: string, enhance: number): number => {
+  const base = BASE_DEFENSE_BY_TIER[tier] ?? 90;
+  const gradeBonus = GRADE_BONUS_BY_GRADE[grade as Item['grade']] ?? 0;
+  const enhanceBonus = enhance * (ENHANCE_BONUS_PER_TIER[tier] ?? 10);
+  return base + gradeBonus + enhanceBonus;
+};
+
+export const rollBonusDefense = (tier: number): number => {
+  const base = BASE_DEFENSE_BY_TIER[tier] ?? 90;
+  const min = Math.floor(base * 0.03);
+  const max = Math.floor(base * 0.06);
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+};
+
 export const calculateSlots = (enhance: number): number => {
   if (enhance >= 9) return 4;
   if (enhance >= 7) return 3;

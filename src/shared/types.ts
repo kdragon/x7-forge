@@ -11,8 +11,10 @@ export interface Item {
   name: string;
   tier: number;
   grade: '일반' | '고급' | '희귀' | '고대' | '영웅' | '유일' | '유물';
-  attack: number;      // 공격력
-  bonusAttack: number; // 추가 공격력
+  attack: number;      // 공격력 (무기)
+  bonusAttack: number; // 추가 공격력 (무기)
+  defense?: number;    // 방어도 (방어구)
+  bonusDefense?: number; // 추가 방어력 (방어구)
   skill: 'R' | 'SR';   // 스킬 변조
   slots: number;       // 세공 슬롯
   enhance: number;     // 강화 수치

@@ -1,5 +1,5 @@
 import type { Item } from '../shared/types';
-import { calculateAttack, rollBonusAttack } from '../config/itemRules';
+import { calculateAttack, rollBonusAttack, calculateDefense, rollBonusDefense } from '../config/itemRules';
 
 export const getLootCount = (inventory: Item[], tier: number): number => {
   const lootName = `${tier}T 전리품`;
@@ -79,6 +79,24 @@ export const createCraftedFieldItem = (tier: number, grade: Item['grade'], isSR:
     slots: 0,
     enhance: 0,
     itemType: 'weapon',
+    itemSource: 'craft',
+  };
+};
+
+export const createCraftedArmorItem = (tier: number, grade: Item['grade'], isSR: boolean): Item => {
+  return {
+    id: Date.now(),
+    name: `${tier}T 필드 방어구`,
+    tier,
+    grade,
+    attack: 0,
+    bonusAttack: 0,
+    defense: calculateDefense(tier, grade, 0),
+    bonusDefense: rollBonusDefense(tier),
+    skill: isSR ? 'SR' : 'R',
+    slots: 0,
+    enhance: 0,
+    itemType: 'armor',
     itemSource: 'craft',
   };
 };

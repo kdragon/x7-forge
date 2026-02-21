@@ -6,14 +6,16 @@ import { getMonsterBaseStats, HUNTING_DROP_RATE, calculateDamage, type BattlePha
 import { applyExpGain } from './core/combatEngine';
 import { DEFAULT_POTION_CONFIG } from './core/potion';
 import { enhanceItem } from './core/enhanceEngine';
-import { createCraftedFieldItem, consumeCore, consumeLoot, getCoreCount, getLootCount } from './core/craft';
+import { createCraftedFieldItem, createCraftedArmorItem, consumeCore, consumeLoot, getCoreCount, getLootCount } from './core/craft';
 import { applyTrade, getInlandTradeValue, getSeaTradeValue } from './core/trade';
 import {
   GRADE_ORDER,
   calculateAttack,
+  calculateDefense,
   determineGrade,
   getMaxGradeForTier,
   rollBonusAttack,
+  rollBonusDefense,
 } from './config/itemRules';
 import InventoryPanel from './ui/inventory/InventoryPanel';
 import EnhancePanel from './ui/enhance/EnhancePanel';
@@ -400,21 +402,24 @@ export default function App() {
                 const maxGrade = GRADE_ORDER.indexOf(tierMax) <= GRADE_ORDER.indexOf(dropCap) ? tierMax : dropCap;
                 const grade = determineGrade(dropRates.rare, dropRates.high, dropRates.hero, maxGrade) as Item['grade'];
                 const isSR = currentTier >= 3 && Math.random() < (dropRates.sr / 100);
+                const isArmor = Math.random() < 0.5;
                 const newItem: Item = {
                   id: Date.now() + Math.random(),
-                  name: `${currentTier}T 드랍템 무기`,
+                  name: `${currentTier}T 드랍템 ${isArmor ? '방어구' : '무기'}`,
                   tier: currentTier,
                   grade,
-                  attack: calculateAttack(currentTier, grade, 0),
-                  bonusAttack: rollBonusAttack(currentTier),
+                  attack: isArmor ? 0 : calculateAttack(currentTier, grade, 0),
+                  bonusAttack: isArmor ? 0 : rollBonusAttack(currentTier),
+                  defense: isArmor ? calculateDefense(currentTier, grade, 0) : undefined,
+                  bonusDefense: isArmor ? rollBonusDefense(currentTier) : undefined,
                   skill: isSR ? 'SR' : 'R',
                   slots: 0,
                   enhance: 0,
-                  itemType: 'weapon',
+                  itemType: isArmor ? 'armor' : 'weapon',
                   itemSource: 'drop',
                 };
                 setTimeout(() => {
-                  addLog(`[사냥] ${currentTier}T 드랍템(${grade}) 획득!`);
+                  addLog(`[사냥] ${currentTier}T 드랍템 ${isArmor ? '방어구' : '무기'}(${grade}) 획득!`);
                   if (newItem.attack > 0) {
                     triggerDropEffect(newItem.grade);
                   }
@@ -673,25 +678,28 @@ export default function App() {
     const maxGrade = GRADE_ORDER.indexOf(tierMax) <= GRADE_ORDER.indexOf(dropCap) ? tierMax : dropCap;
     const grade = determineGrade(dropRates.rare, dropRates.high, dropRates.hero, maxGrade) as Item['grade'];
     const isSR = tier >= 3 && Math.random() < (dropRates.sr / 100); // 3T 이후부터 SR 확률 적용
+    const isArmor = Math.random() < 0.5;
 
     const newItem: Item = {
       id: Date.now() + Math.random(),
-      name: `${tier}T 드랍템 무기`,
+      name: `${tier}T 드랍템 ${isArmor ? '방어구' : '무기'}`,
       tier,
       grade,
-      attack: calculateAttack(tier, grade, 0),
-      bonusAttack: rollBonusAttack(tier),
+      attack: isArmor ? 0 : calculateAttack(tier, grade, 0),
+      bonusAttack: isArmor ? 0 : rollBonusAttack(tier),
+      defense: isArmor ? calculateDefense(tier, grade, 0) : undefined,
+      bonusDefense: isArmor ? rollBonusDefense(tier) : undefined,
       skill: isSR ? 'SR' : 'R',
       slots: 0,
       enhance: 0,
-      itemType: 'weapon',
+      itemType: isArmor ? 'armor' : 'weapon',
       itemSource: 'drop',
     };
     setInventory(prev => [...prev, newItem]);
     if (newItem.attack > 0) {
       triggerDropEffect(newItem.grade);
     }
-    addLog(`[드랍] ${tier}T ${grade}${isSR ? ' SR' : ''} 획득`);
+    addLog(`[드랍] ${tier}T 드랍템 ${isArmor ? '방어구' : '무기'} ${grade}${isSR ? ' SR' : ''} 획득`);
   };
 
   // --- 2. 제작 로직 (티어별 상이한 공식 적용) ---
@@ -808,6 +816,97 @@ export default function App() {
       setInventory([...oreResult.inventory, craftedItem]);
       setConsumedItems(oreResult.consumedItems);
       addLog(`[제작] 7T 필드 ${grade}${isSR ? ' SR' : ''} 획득 (철광석 10 소모)`);
+      return;
+    }
+  };
+
+  // --- 방어구 제작 로직 (무기와 동일한 레시피, itemType: 'armor') ---
+  const handleCraftArmor = (tier: number) => {
+    if (inventory.length >= 300) { alert('인벤토리가 가득 찼습니다! (300/300)'); return; }
+    if (tier === 1) {
+      if (getOreCount(1) < 10) { alert('1T 철광석 10개가 필요합니다.'); return; }
+      const oreResult = consumeOreCore(inventory, consumedItems, 1, 10);
+      if (!oreResult.success) return;
+      const grade = determineGrade(craftRates.rare, craftRates.high, craftRates.hero, getMaxGradeForTier(1)) as Item['grade'];
+      const isSR = Math.random() < (craftRates.sr / 100);
+      const craftedItem = createCraftedArmorItem(1, grade, isSR);
+      setInventory([...oreResult.inventory, craftedItem]);
+      setConsumedItems(oreResult.consumedItems);
+      addLog(`[제작] 1T 필드 방어구 ${grade}${isSR ? ' SR' : ''} 획득 (철광석 10 소모)`);
+      return;
+    }
+    if (tier >= 2 && tier <= 6) {
+      if (getOreCount(tier) < 10) { alert(`${tier}T 철광석 10개가 필요합니다.`); return; }
+      if (getLootCount(inventory, tier) < 10) { alert(`${tier}T 전리품 10개가 필요합니다.`); return; }
+      const oreResult = consumeOreCore(inventory, consumedItems, tier, 10);
+      if (!oreResult.success) return;
+      const lootResult = consumeLoot(oreResult.inventory, tier, 10);
+      if (!lootResult.success) return;
+      const grade = determineGrade(craftRates.rare, craftRates.high, craftRates.hero, getMaxGradeForTier(tier)) as Item['grade'];
+      const isSR = Math.random() < (craftRates.sr / 100);
+      const craftedItem = createCraftedArmorItem(tier, grade, isSR);
+      setInventory([...lootResult.inventory, craftedItem]);
+      setConsumedItems(oreResult.consumedItems);
+      addLog(`[제작] ${tier}T 필드 방어구 ${grade}${isSR ? ' SR' : ''} 획득 (전리품 10, 철광석 10 소모)`);
+      return;
+    }
+    if (tier === 7) {
+      if (getOreCount(7) < 10) { alert('재료 부족! (7T 철광석 10)'); return; }
+      const oreResult = consumeOreCore(inventory, consumedItems, 7, 10);
+      if (!oreResult.success) return;
+      const grade = determineGrade(craftRates.rare, craftRates.high, craftRates.hero, getMaxGradeForTier(7), '고대') as Item['grade'];
+      const isSR = Math.random() < (craftRates.sr / 100);
+      const craftedItem = createCraftedArmorItem(7, grade, isSR);
+      setInventory([...oreResult.inventory, craftedItem]);
+      setConsumedItems(oreResult.consumedItems);
+      addLog(`[제작] 7T 필드 방어구 ${grade}${isSR ? ' SR' : ''} 획득 (철광석 10 소모)`);
+      return;
+    }
+  };
+
+  const handleCraftCoreArmor = (tier: number) => {
+    if (inventory.length >= 300) { alert('인벤토리가 가득 찼습니다! (300/300)'); return; }
+    if (getCoreCount(inventory, tier) < 10) { alert(`${tier}T 코어 10개가 필요합니다.`); return; }
+    if (getOreCount(tier) < 10) { alert(`${tier}T 철광석 10개가 필요합니다.`); return; }
+    const coreResult = consumeCore(inventory, tier, 10);
+    if (!coreResult.success) return;
+    const oreResult = consumeOreCore(coreResult.inventory, consumedItems, tier, 10);
+    if (!oreResult.success) return;
+    const grade = determineGrade(craftRates.rare, craftRates.high, craftRates.hero, getMaxGradeForTier(tier)) as Item['grade'];
+    const isSR = Math.random() < (craftRates.sr / 100);
+    const craftedItem = createCraftedArmorItem(tier, grade, isSR);
+    setInventory([...oreResult.inventory, craftedItem]);
+    setConsumedItems(oreResult.consumedItems);
+    addLog(`[제작] ${tier}T 코어 방어구 ${grade}${isSR ? ' SR' : ''} 획득 (코어 10, 철광석 10 소모)`);
+  };
+
+  const handleCraftTradeArmor = (tier: 5 | 6) => {
+    if (inventory.length >= 300) { alert('인벤토리가 가득 찼습니다! (300/300)'); return; }
+    if (tier === 5) {
+      if (inlandTradeCoins < 10) { alert('내륙무역코인 10개가 필요합니다.'); return; }
+      if (getOreCount(5) < 10) { alert('5T 철광석 10개가 필요합니다.'); return; }
+      const oreResult = consumeOreCore(inventory, consumedItems, 5, 10);
+      if (!oreResult.success) return;
+      const grade = determineGrade(craftRates.rare, craftRates.high, craftRates.hero, getMaxGradeForTier(tier)) as Item['grade'];
+      const isSR = Math.random() < (craftRates.sr / 100);
+      const craftedItem = createCraftedArmorItem(tier, grade, isSR);
+      setInventory([...oreResult.inventory, craftedItem]);
+      setConsumedItems(oreResult.consumedItems);
+      setInlandTradeCoins(prev => prev - 10);
+      addLog(`[제작] ${tier}T 무역 방어구 ${grade}${isSR ? ' SR' : ''} 획득 (내륙코인 10, 철광석 10 소모)`);
+      return;
+    } else {
+      if (seaTradeCoins < 10) { alert('해상무역코인 10개가 필요합니다.'); return; }
+      if (getOreCount(6) < 10) { alert('6T 철광석 10개가 필요합니다.'); return; }
+      const oreResult = consumeOreCore(inventory, consumedItems, 6, 10);
+      if (!oreResult.success) return;
+      const grade = determineGrade(craftRates.rare, craftRates.high, craftRates.hero, getMaxGradeForTier(tier)) as Item['grade'];
+      const isSR = Math.random() < (craftRates.sr / 100);
+      const craftedItem = createCraftedArmorItem(tier, grade, isSR);
+      setInventory([...oreResult.inventory, craftedItem]);
+      setConsumedItems(oreResult.consumedItems);
+      setSeaTradeCoins(prev => prev - 10);
+      addLog(`[제작] ${tier}T 무역 방어구 ${grade}${isSR ? ' SR' : ''} 획득 (해상코인 10, 철광석 10 소모)`);
       return;
     }
   };
@@ -1615,6 +1714,102 @@ export default function App() {
                 }}
               >
                 <span style={{fontWeight: 'bold', fontSize: '0.85rem'}}>{t}T 무역 무기</span>
+                <span style={{fontSize: '0.7rem', color: coins >= 10 ? coinColor : '#ff8888'}}>{coinLabel} {coins}/10</span>
+                <span style={{fontSize: '0.7rem', color: ore >= 10 ? '#90ee90' : '#ff8888'}}>{t}T 철광석 {ore}/10</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* 방어구 제작 */}
+      <div style={{padding: '12px', backgroundColor: '#1a1a2a', borderRadius: '8px', border: '1px solid #3a3a6a', marginBottom: '10px'}}>
+        <div style={{fontSize: '0.8rem', color: '#8888ff', fontWeight: 'bold', marginBottom: '8px'}}>🛡️ 방어구 제작</div>
+        <div style={{display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '6px'}}>
+          {[1,2,3,4,5,6].map(t => {
+            const loot = getLootCount(inventory, t);
+            const ore = getOreCount(t);
+            const canCraft = (t === 1 ? true : loot >= 10) && ore >= 10 && inventory.length < 300;
+            return (
+              <button
+                key={t}
+                onClick={() => handleCraftArmor(t)}
+                disabled={!canCraft}
+                style={{
+                  ...actionBtn,
+                  backgroundColor: canCraft ? '#1e1e3d' : '#2a2a2a',
+                  borderColor: canCraft ? '#6666cc' : '#444',
+                  opacity: canCraft ? 1 : 0.65,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: '3px',
+                  padding: '8px 4px',
+                  cursor: canCraft ? 'pointer' : 'not-allowed',
+                }}
+              >
+                <span style={{fontWeight: 'bold', fontSize: '0.85rem'}}>{t}T 필드 방어구</span>
+                {t > 1 && <span style={{fontSize: '0.7rem', color: loot >= 10 ? '#90ee90' : '#ff8888'}}>{t}T 전리품 {loot}/10</span>}
+                <span style={{fontSize: '0.7rem', color: ore >= 10 ? '#90ee90' : '#ff8888'}}>{t}T 철광석 {ore}/10</span>
+              </button>
+            );
+          })}
+        </div>
+        {/* 코어/무역 방어구 제작 행 */}
+        <div style={{display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '6px', marginTop: '6px'}}>
+          {([3,4,5,6] as const).map(t => {
+            const core = getCoreCount(inventory, t);
+            const ore = getOreCount(t);
+            const canCraft = core >= 10 && ore >= 10 && inventory.length < 300;
+            return (
+              <button
+                key={`core-armor-${t}`}
+                onClick={() => handleCraftCoreArmor(t)}
+                disabled={!canCraft}
+                style={{
+                  ...actionBtn,
+                  backgroundColor: canCraft ? '#1e1e3d' : '#2a2a2a',
+                  borderColor: canCraft ? '#7777cc' : '#444',
+                  opacity: canCraft ? 1 : 0.65,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: '3px',
+                  padding: '8px 4px',
+                  cursor: canCraft ? 'pointer' : 'not-allowed',
+                }}
+              >
+                <span style={{fontWeight: 'bold', fontSize: '0.85rem'}}>{t}T 코어 방어구</span>
+                <span style={{fontSize: '0.7rem', color: core >= 10 ? '#90ee90' : '#ff8888'}}>{t}T 코어 {core}/10</span>
+                <span style={{fontSize: '0.7rem', color: ore >= 10 ? '#90ee90' : '#ff8888'}}>{t}T 철광석 {ore}/10</span>
+              </button>
+            );
+          })}
+          {([5,6] as const).map(t => {
+            const coins = t === 5 ? inlandTradeCoins : seaTradeCoins;
+            const ore = getOreCount(t);
+            const canCraft = coins >= 10 && ore >= 10 && inventory.length < 300;
+            const coinLabel = t === 5 ? '내륙코인' : '해상코인';
+            const coinColor = t === 5 ? '#ff9966' : '#66aaff';
+            return (
+              <button
+                key={`trade-armor-${t}`}
+                onClick={() => handleCraftTradeArmor(t)}
+                disabled={!canCraft}
+                style={{
+                  ...actionBtn,
+                  backgroundColor: canCraft ? '#2a1e4a' : '#2a2a2a',
+                  borderColor: canCraft ? '#9955cc' : '#444',
+                  opacity: canCraft ? 1 : 0.65,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: '3px',
+                  padding: '8px 4px',
+                  cursor: canCraft ? 'pointer' : 'not-allowed',
+                }}
+              >
+                <span style={{fontWeight: 'bold', fontSize: '0.85rem'}}>{t}T 무역 방어구</span>
                 <span style={{fontSize: '0.7rem', color: coins >= 10 ? coinColor : '#ff8888'}}>{coinLabel} {coins}/10</span>
                 <span style={{fontSize: '0.7rem', color: ore >= 10 ? '#90ee90' : '#ff8888'}}>{t}T 철광석 {ore}/10</span>
               </button>
