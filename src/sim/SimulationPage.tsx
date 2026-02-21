@@ -8,6 +8,7 @@ import {
   LinearScale,
   Tooltip,
 } from 'chart.js';
+import type { TooltipItem } from 'chart.js';
 import ChartDataLabels from 'chartjs-plugin-datalabels';
 import { Bar, Pie } from 'react-chartjs-2';
 import { DEFAULT_ENHANCE_RATES } from '../config/enhanceRules';
@@ -318,12 +319,13 @@ export default function SimulationPage() {
       },
       tooltip: {
         callbacks: {
-          label: (ctx: { label?: string; raw?: number }) => {
+          label: (ctx: TooltipItem<'pie'>) => {
             if (!result) return '';
             const total = Object.values(result.stageCounts).reduce((sum, value) => sum + value, 0) || 1;
             const raw = typeof ctx.raw === 'number' ? ctx.raw : 0;
+            const label = ctx.label ?? '';
             const percent = ((raw / total) * 100).toFixed(1);
-            return `${ctx.label}: ${raw.toLocaleString()}개 (${percent}%)`;
+            return `${label}: ${raw.toLocaleString()}개 (${percent}%)`;
           },
         },
       },
@@ -331,6 +333,7 @@ export default function SimulationPage() {
         color: '#fff',
         font: { weight: 'bold' as const, size: 12 },
         formatter: (value: number) => {
+          if (!result) return '';
           const total = Object.values(result.stageCounts).reduce((sum, count) => sum + count, 0) || 1;
           const percent = (value / total) * 100;
           return `${percent.toFixed(1)}%`;
@@ -342,16 +345,17 @@ export default function SimulationPage() {
   const barOptions = useMemo(() => ({
     responsive: true,
     maintainAspectRatio: false,
-    animation: false,
+    animation: false as const,
     plugins: {
       legend: { display: false },
       tooltip: {
         callbacks: {
-          label: (ctx: { raw: number; dataIndex: number }) => {
-            if (!barData) return `강화 단계: ${ctx.raw}`;
+          label: (ctx: TooltipItem<'bar'>) => {
+            const raw = typeof ctx.raw === 'number' ? ctx.raw : 0;
+            if (!barData) return `강화 단계: ${raw}`;
             const startIndex = barData.meta?.windowStart ?? 0;
             const absoluteIndex = startIndex + ctx.dataIndex + 1;
-            return `${absoluteIndex}번째 · 강화 단계 ${ctx.raw}`;
+            return `${absoluteIndex}번째 · 강화 단계 ${raw}`;
           },
         },
       },
