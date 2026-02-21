@@ -24,7 +24,7 @@ import type { GameState } from './state/gameTypes';
 import { useGameActions } from './state/useGameActions';
 import { useGameState } from './state/useGameState';
 import { clearGame, loadGame, saveGame } from './state/persistence';
-import { formatBonusAttack, getGradeColor } from './ui/shared/itemUi';
+import { formatBonusAttack, formatBonusDefense, getGradeColor } from './ui/shared/itemUi';
 import { actionBtn, btnStyle, infoText, itemCard, logPanel } from './ui/shared/styles';
 
 export default function App() {
@@ -2268,6 +2268,7 @@ export default function App() {
                 .filter(item => !item.isStackable)
                 .map(item => {
                   const isSelected = !!disassembleSelection.find(d => d.id === item.id);
+                  const isEquipped = item.id === equippedWeaponId || item.id === equippedArmorId;
                   return (
                     <div
                       key={item.id}
@@ -2287,9 +2288,24 @@ export default function App() {
                           <div style={{fontSize: '0.85rem', fontWeight: 'bold'}}>
                             {item.skill === 'SR' && <span style={{color: '#ff6b00'}}>⭐ </span>}
                             {item.name} {item.enhance > 0 ? `+${item.enhance}` : ''} ({item.grade})
+                            {isEquipped && (
+                              <span style={{
+                                marginLeft: '6px',
+                                padding: '1px 6px',
+                                borderRadius: '10px',
+                                fontSize: '0.7rem',
+                                backgroundColor: 'rgba(25, 118, 210, 0.2)',
+                                color: '#90caf9',
+                                border: '1px solid #1976d2',
+                              }}>
+                                착용중
+                              </span>
+                            )}
                           </div>
                           <div style={{fontSize: '0.75rem', color: '#aaa'}}>
-                            공격: {item.attack} | 추가공격력: {formatBonusAttack(item)}
+                            {item.itemType === 'armor'
+                              ? `방: ${item.defense ?? 0} | 추가방어력: ${formatBonusDefense(item)}`
+                              : `공격: ${item.attack} | 추가공격력: ${formatBonusAttack(item)}`}
                           </div>
                         </div>
                       </div>
